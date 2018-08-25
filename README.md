@@ -58,7 +58,7 @@ The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the
 ```
 
 Demo of text wrapping feature:
-![](https://github.com/mrfearless/DrawTextEXT/blob/master/assets/DrawHTMLCODETest.gif)
+![texwrap](https://github.com/mrfearless/DrawTextEXT/raw/master/assets/DrawHTMLCODETest.gif)
 
 
 ## Todo

@@ -57,10 +57,6 @@ The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the
 </ul> 
 ```
 
-Demo of text wrapping feature:
-![texwrap](https://github.com/mrfearless/DrawTextEXT/raw/master/assets/DrawHTMLCODETest.gif)
-
-
 ## Todo
 
 Note: I am still working on the bbcode version, so I would suggest not using it at the moment as I haven't refactored it or tested it currently. 

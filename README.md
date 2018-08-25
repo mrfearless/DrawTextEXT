@@ -20,7 +20,7 @@ Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK
 
 A RadASM example project is included to demonstrate the `DrawHTMLCODE` function. It can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawHTMLTest.zip?raw=true).
 
-![](./assets/DrawHTMLCODETest.png)
+![](./assets/DrawHTMLCODETest.png) 
 
 The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the following text defined in a variable:
 
@@ -56,6 +56,10 @@ The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the
   <li><u>List 3 - Third Item</u></li>
 </ul> 
 ```
+
+Demo of text wrapping feature:
+![](./assets/DrawHTMLCODETest.gif)
+
 
 ## Todo
 

@@ -5,7 +5,7 @@ Adapted from DrawHTML code posted by Ukkie9:  https://www.codeproject.com/Articl
 
 ## Setup DrawTextEXT
 
-* Download the latest version of the DrawTextEXT release and extract the files. The latest release can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawTextEXT.zip).
+* Download the latest version of the DrawTextEXT release and extract the files. The latest release can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawTextEXT.zip?raw=true).
 * Copy the `DrawTextEXT.inc` file to your project's folder
 * Copy the `DrawTextEXT.asm` file to your project's folder
 * Add the following to your project:
@@ -18,7 +18,7 @@ Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK
 ```
 ## DrawHTMLTest
 
-A RadASM example project is included to demonstrate the `DrawHTMLCODE` function. It can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawHTMLTest.zip).
+A RadASM example project is included to demonstrate the `DrawHTMLCODE` function. It can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawHTMLTest.zip?raw=true).
 
 ![](./assets/DrawHTMLCODETest.png)
 

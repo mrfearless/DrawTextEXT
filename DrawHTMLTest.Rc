@@ -1,0 +1,4 @@
+#include "Res/DrawHTMLTestMnu.rc"
+#include "Res/DrawHTMLTestVer.rc"
+#include "Res/DrawHTMLTestDlg.rc"
+#include "Res/DrawHTMLTestRes.rc"

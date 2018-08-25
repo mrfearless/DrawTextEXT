@@ -61,7 +61,7 @@ The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the
 
 Note: I am still working on the bbcode version, so I would suggest not using it at the moment as I haven't refactored it or tested it currently. 
 
-The html tag `<a href="url">title</a>` in the `DrawHTMLCODE` function doesn't currently work other than to display the title text. No mouse over, mouse click, cursor change or font normal | underline. I'm still thinking up a way to implement this.
+The html tag `<a href="url">title</a>` in the `DrawHTMLCODE` function doesn't currently work other than to display the title text. No mouse over, mouse click, cursor change or font normal | underline. I'm still thinking up a way to implement this properly.
 
 Also, there might be bugs in the code, errors with rendering the text, line heights incorrect, odd placements of text or other things that I haven't caught yet, so if you notice anything odd let me know. Thanks.
 

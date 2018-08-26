@@ -59,7 +59,7 @@ The picture above shows the `DrawHTMLTest` example using `DrawHTMLCODE` with the
 
 ## Todo
 
-Note: I am still working on the bbcode version, so I would suggest not using it at the moment as I haven't refactored it or tested it currently. 
+Note: I am still working on the bbcode version, initial version is included but testing for lists and list items hasn't been completed yet.
 
 The html tag `<a href="url">title</a>` in the `DrawHTMLCODE` function doesn't currently work other than to display the title text. No mouse over, mouse click, cursor change or font normal | underline. I'm still thinking up a way to implement this properly.
 

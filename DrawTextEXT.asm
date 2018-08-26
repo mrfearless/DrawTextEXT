@@ -128,7 +128,6 @@ ENDM
 ;------------------------------------------------------------------------------
 ;DrawHTMLCODE Functions:
 _HTMLCODE_GetToken      PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwWhiteSpace, lpTagInfo
-_HTMLCODE_TagContents   PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; lpszString, dwSize, dwTokenLength, dwType
 _HTMLCODE_QUOTE         PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect, dwTagType
 _HTMLCODE_PRE           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect, dwTagType
 _HTMLCODE_ALINK         PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, lpdwTokenLength, lpRect, dwXPos
@@ -140,6 +139,7 @@ _HTMLCODE_LISTITEM      PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         
 
 
 ; Utility Functions:
+GetTagContents          PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwType, dwTagBracket
 GetFontVariant          PROTO :DWORD,:DWORD,:DWORD                              ; hdc, hfontSource, Styles
 ColorStackPush          PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; hdc, clr, lpStack, lpdwStackTop
 ColorStackPop           PROTO :DWORD,:DWORD,:DWORD                              ; hdc, lpStack lpdwStackTop
@@ -155,6 +155,15 @@ szLinkUrlTitle          PROTO :DWORD,:DWORD,:DWORD,:DWORD                       
 
 ; DrawBBCODE Functions:
 _BBCODE_GetToken        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwWhiteSpace, lpTagInfo
+_BBCODE_CODE            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect
+_BBCODE_QUOTE           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect, dwTagType
+_BBCODE_COLOR           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, dwTag, lpszStart, lpColorStack, lpdwColorStackTop
+_BBCODE_LIST            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, hFont, lpListStack, lpListLevel, dwTag 
+_BBCODE_LISTITEM        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
+
+
+
+
 
 
 .CONST
@@ -197,7 +206,7 @@ tALINK                  EQU 20
 tTAB                    EQU 21
 
 ;---------------------------------------
-; _HTMLCODE_TagContents dwType:
+; GetTagContents dwType:
 ;---------------------------------------
 GETTAG_PRE              EQU 0   ; To fetch <pre> to </pre> tag contents
 GETTAG_CODE             EQU 1   ; To fetch <code> to </code> tag contents
@@ -205,6 +214,13 @@ GETTAG_Q                EQU 2   ; To fetch <q> to </q> tag contents
 GETTAG_QUOTE            EQU 3   ; To fetch <quote> to </quote> tag contents
 GETTAG_BLOCKQ           EQU 4   ; To fetch <blockq> to </blockq> tag contents
 GETTAG_ALINK            EQU 5   ; To fetch <a to </a> tag contents
+GETTAG_MAX              EQU GETTAG_ALINK
+
+;---------------------------------------
+; GetTagContents dwTagBracket:
+;---------------------------------------
+GETTAG_BRACKET_ANGLE    EQU 0   ; <> brackets
+GETTAG_BRACKET_SQUARE   EQU 1   ; [] brackets
 
 ;---------------------------------------
 ; Font Flags:
@@ -741,8 +757,6 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
             and eax, ENDFLAG
             .IF eax == 0 ; <br>
                 Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
-                mov eax, nSize.x
-                mov nWidthOfSpace, eax
                 mov eax, nSize.y
                 mov nLineHeight, eax              
 
@@ -756,6 +770,7 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
                 .ENDIF
                 Invoke SelectObject, hdc, hfontBase
             .ENDIF
+            mov nSize.x, 0
 
         ;------------------------------------------------------------------
         .ELSEIF eax == tB
@@ -1174,7 +1189,7 @@ _HTMLCODE_GetToken PROC USES EBX ECX lpszString:DWORD, lpdwSize:DWORD, lpdwToken
     mov IsEndTag, 0
     mov ebx, EndToken
     movzx eax, byte ptr [ebx]
-    .IF al == '<' ; might be a HTML tag, check
+    .IF al == dbTagOpen ; might be a HTML tag, check
         inc EndToken
         inc nLength
 
@@ -1354,178 +1369,6 @@ _HTMLCODE_GetToken ENDP
 
 
 ;------------------------------------------------------------------------------
-; Gets text from between tags. If dwType =:
-; 0 - <pre> to </pre>
-; 1 - <code> to </code> 
-; 2 - <q> to <q>
-; 3 - <quote> to <quote>
-; 4 - <blockq> to <blockq>
-; 5 - <a> to </a>
-;
-; Returns in eax pointer to zero terminated string or null if error/no text 
-;------------------------------------------------------------------------------
-_HTMLCODE_TagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLength:DWORD, dwType:DWORD
-    LOCAL nSize:DWORD
-    LOCAL saveesi:DWORD
-    LOCAL lpszText:DWORD
-    LOCAL lpszTagContentsText:DWORD
-    LOCAL nLengthTagContentsText:DWORD
-    LOCAL nLengthTag:DWORD
-    LOCAL nLength:DWORD
-    LOCAL bFoundEndTag:DWORD
-    LOCAL szTag[16]:BYTE
-    
-    ;PrintText '_HTMLCODE_TagContents'
-    .IF lpszString == NULL || dwSize == NULL
-        mov eax, NULL
-        ret
-    .ENDIF
-
-    mov ebx, dwSize
-    mov eax, [ebx]
-    mov nSize, eax
-
-    mov ebx, lpszString
-    mov eax, [ebx]
-    .IF dwType == GETTAG_ALINK
-        add eax, 3
-    .ELSE
-        add eax, dwTokenLength
-    .ENDIF
-    mov lpszText, eax
-
-    mov bFoundEndTag, FALSE
-    mov nLengthTagContentsText, 0
-    mov eax, 0
-    mov esi, lpszText
-
-    
-    .WHILE (eax <= nSize)
-        movzx ebx, byte ptr [esi]
-        
-        .IF bl == '/' ; get end tag
-            mov nLengthTag, 0
-            inc esi
-            movzx ebx, byte ptr [esi]
-            lea edi, szTag
-            mov eax, nLengthTagContentsText
-            .WHILE (eax <= nSize) && bl != '>'
-                mov byte ptr [edi], bl
-                inc edi
-                inc esi
-                movzx ebx, byte ptr [esi]
-                inc nLengthTag
-                inc nLengthTagContentsText
-                mov eax, nLengthTagContentsText
-            .ENDW
-            mov byte ptr [edi], 0 ; end null szTag
-            inc nLengthTagContentsText
-            inc esi
-            mov saveesi, esi ; save esi
-            ;PrintStringByAddr esi
-            ;lea eax, szTag
-            ;DbgDump eax, nLengthTag
-            
-            ; got tag, check if it matches the one we want
-            .IF dwType == GETTAG_PRE ; </pre>
-                Invoke szCmpi, Addr szPreTag, Addr szTag, 3
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 5 ; take </pre
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE
-                    inc nLengthTagContentsText
-                .ENDIF
-            .ELSEIF dwType == GETTAG_CODE ; </code>
-                Invoke szCmpi, Addr szCodeTag, Addr szTag, 4
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 6 ; take </code
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE 
-                    inc nLengthTagContentsText
-                .ENDIF
-            .ELSEIF dwType == GETTAG_Q ; </q>
-                Invoke szCmpi, Addr szQuoteTag1, Addr szTag, 1
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 3 ; take </q
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE 
-                    inc nLengthTagContentsText
-                .ENDIF                
-            .ELSEIF dwType == GETTAG_QUOTE ; </quote>
-                Invoke szCmpi, Addr szQuoteTag2, Addr szTag, 5
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 7 ; take </quote
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE 
-                    inc nLengthTagContentsText
-                .ENDIF  
-            .ELSEIF dwType == GETTAG_BLOCKQ; </blockq>
-                Invoke szCmpi, Addr szQuoteTag3, Addr szTag, 6
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 8 ; take </blockq
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE 
-                    inc nLengthTagContentsText
-                .ENDIF
-            .ELSEIF dwType == GETTAG_ALINK; </a>
-                Invoke szCmpi, Addr szAlinkTag, Addr szTag, 1
-                .IF eax == 0 ; match
-                    sub nLengthTagContentsText, 3 ; take </a
-                    mov bFoundEndTag, TRUE
-                    .BREAK
-                .ELSE 
-                    inc nLengthTagContentsText
-                .ENDIF  
-            .ELSE
-                IFDEF DEBUG32
-                PrintText 'Error value not supported yet'
-                ENDIF
-            .ENDIF
-            mov esi, saveesi
-        .ENDIF
-        inc esi
-        inc nLengthTagContentsText
-        mov eax, nLengthTagContentsText
-    .ENDW    
-    
-    ; at end, either ran out of text and didnt find any end tag
-    ; or we broke out of loop and found end tag
-    .IF bFoundEndTag == FALSE
-        mov eax, NULL
-        ret
-    .ENDIF
-
-    mov eax, nLengthTagContentsText
-    add eax, 4
-    Invoke GlobalAlloc, GMEM_FIXED or GMEM_ZEROINIT, eax
-    .IF eax == NULL
-        ret
-    .ENDIF
-    mov lpszTagContentsText, eax
-
-    ; adjust length to skip back over the / and <
-    mov ebx, lpszString
-    mov eax, [ebx]
-    .IF dwType == GETTAG_ALINK
-        add eax, 3
-    .ELSE
-        add eax, dwTokenLength
-    .ENDIF
-    mov lpszText, eax
-
-    Invoke RtlMoveMemory, lpszTagContentsText, lpszText, nLengthTagContentsText
-    mov eax, lpszTagContentsText
-    ret
-
-_HTMLCODE_TagContents ENDP
-
-
-;------------------------------------------------------------------------------
 ; _HTMLCODE_PRE - Pre Tag or Code Tag
 ;
 ; Draws the pre/code text with its background fill and courier font
@@ -1552,7 +1395,7 @@ _HTMLCODE_PRE PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCoun
     LOCAL rect:RECT
     LOCAL nSize:POINT
     
-    Invoke _HTMLCODE_TagContents, lplpszStart, lpNewCount, dwTokenLength, dwTagType
+    Invoke GetTagContents, lplpszStart, lpNewCount, dwTokenLength, dwTagType, GETTAG_BRACKET_ANGLE
     .IF eax != NULL
         mov lpTagContentText, eax
         Invoke szLen, lpTagContentText
@@ -1674,7 +1517,7 @@ _HTMLCODE_QUOTE PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCo
     .ELSEIF eax == tQUOTE3
         mov eax, GETTAG_BLOCKQ
     .ENDIF
-    Invoke _HTMLCODE_TagContents, lplpszStart, lpNewCount, dwTokenLength, eax
+    Invoke GetTagContents, lplpszStart, lpNewCount, dwTokenLength, eax, GETTAG_BRACKET_ANGLE
     .IF eax != NULL
         mov lpTagContentText, eax
         Invoke szLen, lpTagContentText
@@ -1832,7 +1675,7 @@ _HTMLCODE_ALINK PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCo
     mov eax, [ebx]
     mov nTokenLength, eax
 
-    Invoke _HTMLCODE_TagContents, lplpszStart, lpNewCount, nTokenLength, GETTAG_ALINK
+    Invoke GetTagContents, lplpszStart, lpNewCount, nTokenLength, GETTAG_ALINK, GETTAG_BRACKET_ANGLE
     .IF eax != NULL                
         mov lpTagContentText, eax
         Invoke szLen, lpTagContentText
@@ -2211,6 +2054,200 @@ _HTMLCODE_LISTITEM ENDP
 ;==============================================================================
 ; Utility  Functions
 ;==============================================================================
+
+
+;------------------------------------------------------------------------------
+; Gets text from between tags. If dwType =:
+; 0 - <pre> to </pre>
+; 1 - <code> to </code> 
+; 2 - <q> to <q>
+; 3 - <quote> to <quote>
+; 4 - <blockq> to <blockq>
+; 5 - <a> to </a>
+;
+; Returns in eax pointer to zero terminated string or null if error/no text 
+;------------------------------------------------------------------------------
+GetTagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLength:DWORD, dwType:DWORD, dwTagBracket:DWORD
+    LOCAL nSize:DWORD
+    LOCAL saveesi:DWORD
+    LOCAL lpszText:DWORD
+    LOCAL lpszTagContentsText:DWORD
+    LOCAL nLengthTagContentsText:DWORD
+    LOCAL nLengthTag:DWORD
+    LOCAL nLength:DWORD
+    LOCAL bFoundEndTag:DWORD
+    LOCAL szTag[16]:BYTE
+    
+    ;PrintText 'GetTagContents'
+    .IF lpszString == NULL || dwSize == NULL
+        mov eax, NULL
+        ret
+    .ENDIF
+    
+    .IF dwType > GETTAG_MAX ; if unknown type return 0
+        mov eax, 0
+        ret
+    .ENDIF
+    
+    mov ebx, dwSize
+    mov eax, [ebx]
+    mov nSize, eax
+
+    mov ebx, lpszString
+    mov eax, [ebx]
+    .IF dwType == GETTAG_ALINK
+        add eax, 3
+    .ELSE
+        add eax, dwTokenLength
+    .ENDIF
+    mov lpszText, eax
+
+    mov bFoundEndTag, FALSE
+    mov nLengthTagContentsText, 0
+    mov eax, 0
+    mov esi, lpszText
+
+    .WHILE (eax <= nSize)
+        movzx ebx, byte ptr [esi]
+        
+        .IF bl == '/' ; get end tag
+            mov nLengthTag, 0
+            inc esi
+            movzx ebx, byte ptr [esi]
+            lea edi, szTag
+            mov eax, nLengthTagContentsText
+            .IF dwTagBracket == GETTAG_BRACKET_ANGLE
+                .WHILE (eax <= nSize) && bl != '>'
+                    mov byte ptr [edi], bl
+                    inc edi
+                    inc esi
+                    movzx ebx, byte ptr [esi]
+                    inc nLengthTag
+                    inc nLengthTagContentsText
+                    mov eax, nLengthTagContentsText
+                .ENDW
+            .ELSEIF dwTagBracket == GETTAG_BRACKET_SQUARE
+                .WHILE (eax <= nSize) && bl != ']'
+                    mov byte ptr [edi], bl
+                    inc edi
+                    inc esi
+                    movzx ebx, byte ptr [esi]
+                    inc nLengthTag
+                    inc nLengthTagContentsText
+                    mov eax, nLengthTagContentsText
+                .ENDW
+            .ELSE
+                IFDEF DEBUG32
+                    PrintText 'Bracket type not implemented yet'
+                ENDIF
+                mov eax, 0
+                ret
+            .ENDIF
+            mov byte ptr [edi], 0 ; end null szTag
+            inc nLengthTagContentsText
+            inc esi
+            mov saveesi, esi ; save esi
+            ;PrintStringByAddr esi
+            ;lea eax, szTag
+            ;DbgDump eax, nLengthTag
+            
+            ; got tag, check if it matches the one we want
+            .IF dwType == GETTAG_PRE ; </pre>
+                Invoke szCmpi, Addr szPreTag, Addr szTag, 3
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 5 ; take </pre
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE
+                    inc nLengthTagContentsText
+                .ENDIF
+            .ELSEIF dwType == GETTAG_CODE ; </code>
+                Invoke szCmpi, Addr szCodeTag, Addr szTag, 4
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 6 ; take </code
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF
+            .ELSEIF dwType == GETTAG_Q ; </q>
+                Invoke szCmpi, Addr szQuoteTag1, Addr szTag, 1
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 3 ; take </q
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF                
+            .ELSEIF dwType == GETTAG_QUOTE ; </quote>
+                Invoke szCmpi, Addr szQuoteTag2, Addr szTag, 5
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 7 ; take </quote
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF  
+            .ELSEIF dwType == GETTAG_BLOCKQ; </blockq>
+                Invoke szCmpi, Addr szQuoteTag3, Addr szTag, 6
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 8 ; take </blockq
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF
+            .ELSEIF dwType == GETTAG_ALINK; </a>
+                Invoke szCmpi, Addr szAlinkTag, Addr szTag, 1
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 3 ; take </a
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF  
+            .ELSE
+                IFDEF DEBUG32
+                PrintText 'Error value not supported yet'
+                ENDIF
+            .ENDIF
+            mov esi, saveesi
+        .ENDIF
+        inc esi
+        inc nLengthTagContentsText
+        mov eax, nLengthTagContentsText
+    .ENDW    
+    
+    ; at end, either ran out of text and didnt find any end tag
+    ; or we broke out of loop and found end tag
+    .IF bFoundEndTag == FALSE
+        mov eax, NULL
+        ret
+    .ENDIF
+
+    mov eax, nLengthTagContentsText
+    add eax, 4
+    Invoke GlobalAlloc, GMEM_FIXED or GMEM_ZEROINIT, eax
+    .IF eax == NULL
+        ret
+    .ENDIF
+    mov lpszTagContentsText, eax
+
+    ; adjust length to skip back over the / and <
+    mov ebx, lpszString
+    mov eax, [ebx]
+    .IF dwType == GETTAG_ALINK
+        add eax, 3
+    .ELSE
+        add eax, dwTokenLength
+    .ENDIF
+    mov lpszText, eax
+
+    Invoke RtlMoveMemory, lpszTagContentsText, lpszText, nLengthTagContentsText
+    mov eax, lpszTagContentsText
+    ret
+
+GetTagContents ENDP
 
 
 ;------------------------------------------------------------------------------
@@ -2851,41 +2888,29 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     LOCAL Tag:DWORD
     LOCAL TagPrevious:DWORD
     LOCAL nTokenLength:DWORD
-    LOCAL hFont:DWORD
     LOCAL hfontBase:DWORD
-    LOCAL hfontSpecial[FV_NUMBER]:DWORD
     LOCAL Styles:DWORD
     LOCAL CurStyles:DWORD
-    LOCAL nSize:_SIZE
     LOCAL nIndex:DWORD
     LOCAL nLineHeight:DWORD
-    LOCAL CurPos:POINT
     LOCAL nWidthOfSpace:DWORD
     LOCAL XPos:DWORD
     LOCAL bWhiteSpace:DWORD
     LOCAL rect:RECT
+    LOCAL nSize:POINT
     LOCAL NewFormat:DWORD
     LOCAL NewCount:DWORD
-    LOCAL lpColString:DWORD
-    LOCAL dwPreMode:DWORD
-    LOCAL dwQuoteMode:DWORD
-    LOCAL nQuoteLine:DWORD
     LOCAL SavedStyle:DWORD
     LOCAL SavedColor:DWORD
     LOCAL SavedBkColor:DWORD
-    LOCAL SavedLineHeight:DWORD
     LOCAL ColorStackTop:DWORD
-    LOCAL dwRGB:DWORD
     LOCAL ListLevel:DWORD
     LOCAL dwListIndent:DWORD
-    LOCAL dwListBulletIndent:DWORD
-    LOCAL dwListType:DWORD
-    LOCAL dwListCounter:DWORD
     LOCAL dwListItemMode:DWORD
-    LOCAL LenLinkTitle:DWORD
-    LOCAL szListItemNo[4]:BYTE
-    LOCAL ColorStack[COLORSTACKSIZE]:DWORD
-    LOCAL ListStack[LISTSTACKSIZE]:LISTINFO    
+    LOCAL dwBulletIndent:DWORD
+    LOCAL hfontSpecial[FV_NUMBER]:DWORD
+    LOCAL ColorStack[COLORSTACKSIZE]:COLORREF
+    LOCAL ListStack[LISTSTACKSIZE]:LISTINFO  
     
     ;PrintText 'DrawBBCODE'
     .IF hdc == NULL || lpString == NULL
@@ -2900,7 +2925,7 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     .ENDIF
     mov NewCount, eax
 
-    .IF lpRect != NULL
+   .IF lpRect != NULL
         Invoke CopyRect, Addr rect, lpRect
         mov eax, rect.left
         mov nLeft, eax
@@ -2912,17 +2937,17 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
         sub eax, nLeft
         mov nMaxWidth, eax
     .ELSE
-        Invoke GetCurrentPositionEx, hdc, Addr CurPos
-        mov eax, CurPos.x
+        Invoke GetCurrentPositionEx, hdc, Addr nSize
+        mov eax, nSize.x
         mov nLeft, eax
-        mov eax, CurPos.y
+        mov eax, nSize.y
         mov nTop, eax
         Invoke GetDeviceCaps, hdc, HORZRES
         mov ebx, nLeft
         sub eax, ebx
         mov nMaxWidth, eax
     .ENDIF
-    
+    ;PrintDec nLeft
     .IF SDWORD ptr nMaxWidth < 0
         mov nMaxWidth, 0
     .ENDIF
@@ -2963,198 +2988,250 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     mov CurStyles, -1 ; force a select of the proper style
     mov nHeight, 0
     mov bWhiteSpace, FALSE
-    mov dwPreMode, 0
-    mov dwQuoteMode, 0
     mov ColorStackTop, 0
     mov TagPrevious, 0
     mov ListLevel, 0
-    mov dwListType, 0
-    mov dwListCounter, 1    
+    mov nSize.x, 0
+
     Invoke RtlZeroMemory, Addr ColorStack, SIZEOF ColorStack
     Invoke RtlZeroMemory, Addr ListStack, SIZEOF ListStack
-    Invoke RtlZeroMemory, Addr szListItemNo, SIZEOF szListItemNo
 
     mov eax, lpString
     mov lpszStart, eax
 
     .WHILE TRUE
         
-        Invoke _BBCODE_GetToken, Addr lpszStart, Addr NewCount, Addr nTokenLength, Addr bWhiteSpace, Addr HTMLCODE_TAGINFO
+        Invoke _BBCODE_GetToken, Addr lpszStart, Addr NewCount, Addr nTokenLength, Addr bWhiteSpace, Addr BBCODE_TAGINFO
         mov Tag, eax
-
+        
+        ;PrintDec Tag
+        
         .IF SDWORD ptr eax < 0
             .BREAK
         .ENDIF
         
         mov eax, Tag
         and eax, (-1 xor ENDFLAG)
-        .IF eax == tBR && dwPreMode == 0
-            mov eax, Tag
-            and eax, ENDFLAG
-            .IF eax == 0
-                .IF dwQuoteMode == 1
-                    mov eax, NewFormat
-                    and eax, DT_SINGLELINE
-                    .IF eax != DT_SINGLELINE
-                        inc nQuoteLine
-                        mov eax, nLineHeight
-                        add nHeight, eax
-                        mov XPos, QUOTE_INDENT
-                    .ENDIF
-                .ELSE
-                    mov eax, NewFormat
-                    and eax, DT_SINGLELINE
-                    .IF eax != DT_SINGLELINE
-                        mov eax, nLineHeight
-                        add eax, 2d
-                        add nHeight, eax
-                        mov XPos, 0
-                    .ENDIF
-                .ENDIF
-            .ENDIF
-
-        .ELSEIF eax == tCODE
-            .IF dwQuoteMode == 0
-                mov eax, Tag
-                and eax, ENDFLAG
-                .IF eax == 0
-                    ;PrintText 'PreMode ON'
-                    ; Set Preformatted mode on and save current style and color
-                    mov dwPreMode, 1
+        
+        ;------------------------------------------------------------------
+        .IF eax == tBR ; CRLF, (13,10), (0Dh,0Ah), LF, 13, 0Dh
+            ;PrintText 'tBR'
+            .IF TagPrevious != (tCODE or ENDFLAG)
+                ;PrintDec nTokenLength
+                ;PrintDec bWhiteSpace
+                Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+                mov eax, nSize.y
+                mov nLineHeight, eax              
+    
+                mov eax, NewFormat
+                and eax, DT_SINGLELINE
+                .IF eax != DT_SINGLELINE
                     mov eax, nLineHeight
-                    mov SavedLineHeight, eax                    
-                    mov eax, Styles
-                    mov SavedStyle, eax
-                    Invoke GetTextColor, hdc
-                    mov SavedColor, eax
-                    Invoke GetBkColor, hdc
-                    mov SavedBkColor, eax                    
-                    ; Set Preformatted style and color
-                    mov Styles, 0
-                    or Styles, FV_PRE
-                    Invoke SetTextColor, hdc, dwRGBCodeTextColor
-                    mov eax, NewFormat
-                    and eax, DT_SINGLELINE
-                    .IF eax != DT_SINGLELINE
-                        mov eax, nLineHeight
-                        add nHeight, eax
-                        mov XPos, PRE_INDENT
-                    .ENDIF
-                .ELSE
-                    ;PrintText 'PreMode OFF'
-                    ; Set Preformatted mode off and restore previous style and color
-                    mov dwPreMode, 0
-                    mov eax, SavedStyle
-                    mov Styles, eax
-                    mov eax, SavedColor
-                    Invoke SetTextColor, hdc, eax
-                    mov eax, SavedBkColor
-                    Invoke SetBkColor, hdc, eax
-                    ;mov eax, SavedLineHeight
-                    ;mov nLineHeight, eax                    
+                    add eax, 2d
+                    add nHeight, eax
+                    mov XPos, 0
                 .ENDIF
+                Invoke SelectObject, hdc, hfontBase
+                mov nSize.x, 0
+                ;PrintDec XPos
+                ;PrintDec nSize.x
+                ;mov bWhiteSpace, FALSE
             .ENDIF
-
-        .ELSEIF eax == tB && dwPreMode == 0
-            .IF dwQuoteMode == 0
-                mov eax, Tag
-                and eax, ENDFLAG
-                .IF eax == ENDFLAG
-                    and Styles, (-1 xor FV_BOLD)
-                .ELSE
-                    or Styles, FV_BOLD
-                .ENDIF
-            .ENDIF
-
-        .ELSEIF eax == tI && dwPreMode == 0
-            .IF dwQuoteMode == 0
-                mov eax, Tag
-                and eax, ENDFLAG
-                .IF eax == ENDFLAG
-                    and Styles, (-1 xor FV_ITALIC)
-                .ELSE
-                    or Styles, FV_ITALIC
-                .ENDIF
-            .ENDIF
-
-        .ELSEIF eax == tU && dwPreMode == 0
-            .IF dwQuoteMode == 0
-                mov eax, Tag
-                and eax, ENDFLAG
-                .IF eax == ENDFLAG
-                    and Styles, (-1 xor FV_UNDERLINE)
-                .ELSE
-                    or Styles, FV_UNDERLINE
-                .ENDIF
-            .ENDIF
-
-        ;todo get all text for quote, do DT_CALCRECT only
-        ; store all text to a buffer, get lines for quotes * line height
-        ; at end tag draw it all as DT_CENTER and with quote marks
-        ; convert text to unicode?
-        .ELSEIF eax == tQUOTE1 && dwPreMode == 0
+        
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tTAB
+            ;PrintText 'tTAB'
+            Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+            mov eax, nSize.x
+            shl eax, 2 ; x 4 for 4 spaces
+            add XPos, eax
+        
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tCODE
+            ;PrintText 'tCODE'
             mov eax, Tag
-            and eax, ENDFLAG
-            .IF eax == 0
-                mov nQuoteLine, 0
-                mov dwQuoteMode, 1
-                mov eax, nLineHeight
-                mov SavedLineHeight, eax                
+            and eax, ENDFLAG        
+            .IF eax == 0 ; [code]
+                ;.IF TagPrevious != (tCODE or ENDFLAG)
+                ;    mov eax, nLineHeight
+                ;    add nHeight, eax
+                ;.ENDIF
+
                 mov eax, Styles
                 mov SavedStyle, eax
                 Invoke GetTextColor, hdc
                 mov SavedColor, eax
                 Invoke GetBkColor, hdc
-                mov SavedBkColor, eax                
-                mov Styles, 0
-                or Styles, FV_QUOTE
-                Invoke SetTextColor, hdc, 05C5C5Ch
-                mov eax, NewFormat
-                and eax, DT_SINGLELINE
-                .IF eax != DT_SINGLELINE
-                    mov eax, nLineHeight
-                    add nHeight, eax
-                    mov XPos, QUOTE_INDENT
-                .ENDIF
+                mov SavedBkColor, eax
+
+                ; Store some params in rect structure
+                mov eax, nLeft
+                mov rect.left, eax
+                mov eax, nTop
+                mov rect.top, eax
+                mov eax, nMaxWidth
+                mov rect.right, eax
+                lea eax, nHeight
+                mov rect.bottom, eax
                 
-            .ELSE
-                mov eax, nSize.x
-                add rect.left, eax
-                Invoke DrawTextW, hdc, Addr szDblQuoteCloseW, 1, Addr rect, NewFormat
-                mov dwQuoteMode, 0
+                Invoke _BBCODE_CODE, hdc, hfontBase, Addr lpszStart, Addr NewCount, nTokenLength, Addr rect
+
+            .ELSE ; [/code]
                 mov eax, SavedStyle
                 mov Styles, eax
                 mov eax, SavedColor
                 Invoke SetTextColor, hdc, eax
                 mov eax, SavedBkColor
                 Invoke SetBkColor, hdc, eax
-                ;mov eax, SavedLineHeight
-                ;mov nLineHeight, eax
             .ENDIF
-        
-        .ELSEIF eax == tCOLOR && dwPreMode == 0
-            .IF dwQuoteMode == 0        
-                mov eax, Tag
-                and eax, ENDFLAG
-                .IF eax == 0
-                    mov eax, lpszStart ; <color='#C00000'>
-                    add eax, 7d
-                    mov lpColString, eax
-                    Invoke ParseColor, Addr lpColString
-                    mov dwRGB, eax
-                    Invoke ColorStackPush, hdc, dwRGB, Addr ColorStack, Addr ColorStackTop
-                .ELSE
-                    Invoke ColorStackPop, hdc, Addr ColorStack, Addr ColorStackTop
+            mov XPos, 0
+            
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tQUOTE1 || eax == tQUOTE2
+            ;PrintText 'tQUOTE'        
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == 0 ; [q], [quote]
+                mov eax, Styles
+                mov SavedStyle, eax
+                Invoke GetTextColor, hdc
+                mov SavedColor, eax
+                Invoke GetBkColor, hdc
+                mov SavedBkColor, eax
+
+                ; Store some params in rect structure
+                mov eax, nLeft
+                mov rect.left, eax
+                mov eax, nTop
+                mov rect.top, eax
+                mov eax, nMaxWidth
+                mov rect.right, eax
+                lea eax, nHeight
+                mov rect.bottom, eax                
+                
+                Invoke _BBCODE_QUOTE, hdc, hfontBase, Addr lpszStart, Addr NewCount, nTokenLength, Addr rect, Tag
+
+            .ELSE ; [/q], [/quote]
+                mov eax, SavedStyle
+                mov Styles, eax
+                mov eax, SavedColor
+                Invoke SetTextColor, hdc, eax
+                mov eax, SavedBkColor
+                Invoke SetBkColor, hdc, eax
+            .ENDIF
+            mov XPos, 0        
+
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tLIST || eax == tLISTO ; unordered list or orderded list
+            ;PrintText 'tLIST'
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == 0 ; <ul> or <ol>
+            
+                Invoke _BBCODE_LIST, hdc, hfontBase, Addr ListStack, Addr ListLevel, Tag
+                
+                mov eax, NewFormat
+                and eax, DT_SINGLELINE
+                .IF eax != DT_SINGLELINE
+                    .IF ListLevel < 2
+                        mov eax, nLineHeight
+                        add eax, 2d
+                        add nHeight, eax
+                    .ENDIF
+                    mov XPos, 0
+                .ENDIF                
+
+            .ELSE ; </ul> or <ol>
+                ;Invoke ListStackPop, Addr dwListType, Addr dwListIndent, Addr dwListBulletIndent, Addr ListStack, Addr ListLevel
+                Invoke ListStackPop, NULL, NULL, NULL, Addr ListStack, Addr ListLevel
+                .IF Tag == tLISTO
+                    Invoke ListStackSetCounter, 1, Addr ListStack, ListLevel
                 .ENDIF
+                ;mov dwListCounter, 1
+                Invoke SelectObject, hdc, hfontBase
             .ENDIF
 
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tLISTITEM && ListLevel > 0
+            ;PrintText 'tLISTITEM'        
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == 0 ; <li>
+                
+                mov dwListItemMode, 1
+                
+                ; Store some params in rect structure
+                mov eax, nLeft
+                mov rect.left, eax
+                mov eax, nTop
+                mov rect.top, eax
+                mov eax, nMaxWidth
+                mov rect.right, eax
+                lea eax, nHeight
+                mov rect.bottom, eax
+                
+                Invoke _BBCODE_LISTITEM, hdc, hfontBase, Addr ListStack, ListLevel, Addr rect, NewFormat
+                mov XPos, eax
+
+            .ELSE ; </li>
+                mov dwListItemMode, 0
+                Invoke SelectObject, hdc, hfontBase
+            .ENDIF
+
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tB
+            ;PrintText 'tB'
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == ENDFLAG ; [/b]
+                and Styles, (-1 xor FV_BOLD)
+            .ELSE ; [b]
+                or Styles, FV_BOLD
+            .ENDIF
+
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tI
+            ;PrintText 'tI'
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == ENDFLAG ; [/i]
+                and Styles, (-1 xor FV_ITALIC)
+            .ELSE ; [i]
+                or Styles, FV_ITALIC
+            .ENDIF
+
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tU
+            ;PrintText 'tU'
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == ENDFLAG ; [/u]
+                and Styles, (-1 xor FV_UNDERLINE)
+            .ELSE ; [u]
+                or Styles, FV_UNDERLINE
+            .ENDIF
+
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tCOLOR
+            ;PrintText 'tCOLOR'
+            Invoke _BBCODE_COLOR, hdc, Tag, lpszStart, Addr ColorStack, Addr ColorStackTop
+        
+        ;------------------------------------------------------------------
         .ELSE ; default
             mov eax, Tag
             and eax, (tNONE or ENDFLAG)
-            .IF eax == ENDFLAG && dwPreMode == 0
+            .IF eax == ENDFLAG ; Nothing to draw, just skip end tag and continue
                 
-            .ELSE
-
+                ; Goto update current position for next word/token and loop again
+                
+            .ELSE ; otherwise we assume it was a word (or an unknown tag) to draw
+                
+                ;PrintText 'word'
+                ;PrintDec XPos
+                
+                ;----------------------------------------------------------
+                ; Start of the drawing text with font styles
+                ;----------------------------------------------------------
                 mov eax, CurStyles
                 .IF eax != Styles
                     lea ebx, hfontSpecial
@@ -3172,43 +3249,54 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                     mov ecx, Styles
                     mov eax, dword ptr [ebx+ecx*DWORD]
                     Invoke SelectObject, hdc, eax
-                    ; get the width of a space character (for word spacing) */
+                    ; get the width of a space character (for word spacing)
                     Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
                     mov eax, nSize.x
                     mov nWidthOfSpace, eax
-                    
-                    ;.IF dwPreMode != 0 || dwQuoteMode != 0
-                        mov eax, nSize.y
-                        mov nLineHeight, eax                    
-                    ;.ENDIF
-                    
+                    mov eax, nSize.y
+                    mov nLineHeight, eax                    
                 .ENDIF
             
-                ; /* check word length, check whether to wrap around */
+                ;----------------------------------------------------------
+                ; Check word length, check whether to wrap around
+                ;----------------------------------------------------------
                 Invoke GetTextExtentPoint32, hdc, lpszStart, nTokenLength, Addr nSize
                 mov eax, nSize.x
                 .IF eax > nMaxWidth
-                    mov nMaxWidth, eax ;   /* must increase width: long non-breakable word */
+                    mov nMaxWidth, eax ; must increase width: long non-breakable word
                 .ENDIF
-                
                 .IF bWhiteSpace == TRUE
                     mov eax, nWidthOfSpace
                     add XPos, eax
                 .ENDIF
                 
+                .IF dwListItemMode == 1 
+                    Invoke ListStackPeek, NULL, Addr dwListIndent, Addr dwBulletIndent, Addr ListStack, ListLevel
+                    mov eax, XPos
+                    add eax, dwListIndent
+                    sub eax, dwBulletIndent
+                    add eax, nSize.x
+                .ELSE
+                    mov eax, XPos
+                    add eax, nSize.x
+                .ENDIF                
                 mov eax, XPos
                 add eax, nSize.x
-                .IF eax > nMaxWidth && bWhiteSpace == TRUE && dwPreMode == 0
+                .IF eax > nMaxWidth && bWhiteSpace == TRUE
                     mov eax, uFormat
                     and eax, DT_WORDBREAK
                     .IF eax == DT_WORDBREAK
-                        .IF dwQuoteMode == 1
-                            inc nQuoteLine
+                        .IF dwListItemMode == 1
+                            Invoke ListStackPeek, NULL, Addr dwListIndent, NULL, Addr ListStack, ListLevel
+                            ; word wrap
                             mov eax, nLineHeight
+                            add eax, 2d
                             add nHeight, eax
-                            mov XPos, QUOTE_INDENT
-                        .ELSE                    
-                            ; word wrap */
+                            mov eax, dwListIndent
+                            ;add eax, nWidthOfSpace ; for some reason needs extra space for indent?, not sure why?
+                            mov XPos, eax
+                        .ELSE
+                            ; word wrap
                             mov eax, nLineHeight
                             add nHeight, eax
                             mov XPos, 0
@@ -3219,77 +3307,51 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                         add eax, nSize.x
                         mov nMaxWidth, eax
                     .ENDIF
-                .ELSE
-                    .IF eax > nMaxWidth
-                        .IF dwPreMode != 0 ; wrap preformatted mode text words
-                            mov eax, nLineHeight
-                            add nHeight, eax
-                            mov XPos, PRE_INDENT
-                        .ENDIF
-                        
-                        .IF dwQuoteMode == 1
-                            inc nQuoteLine
-                            mov eax, nLineHeight
-                            add nHeight, eax
-                            mov XPos, QUOTE_INDENT
-                        .ENDIF
-                    .ENDIF
                 .ENDIF
                 
-                ; output text (unless DT_CALCRECT is set) */
+                ;----------------------------------------------------------
+                ; Output text (unless DT_CALCRECT is set)
+                ;----------------------------------------------------------
                 mov eax, uFormat
                 and eax, DT_CALCRECT
                 .IF eax == 0
-                    ; handle negative heights, too (suggestion of "Sims")  */
+                    ; handle negative heights, too (suggestion of "Sims")
                     mov eax, nTop
                     .IF sdword ptr eax < 0
                         mov eax, nLeft
                         add eax, XPos
                         mov rect.left, eax
-                        
                         mov eax, nTop
                         sub eax, nHeight
                         mov rect.top, eax
-    
                         mov eax, nLeft
                         add eax, nMaxWidth
                         mov rect.right, eax
-                        
                         mov eax, nTop
                         mov ebx, nHeight
                         add ebx, nLineHeight
                         sub eax, ebx
                         mov rect.bottom, eax
-                        
                     .ELSE
-                    
+                        ;PrintDec nLeft
+                        ;PrintDec XPos
                         mov eax, nLeft
                         add eax, XPos
                         mov rect.left, eax
-                        
+                        ;PrintDec rect.left
                         mov eax, nTop
                         add eax, nHeight
                         mov rect.top, eax
-    
                         mov eax, nLeft
                         add eax, nMaxWidth
                         mov rect.right, eax
-                        
-                        .IF dwQuoteMode == 1
-                            sub rect.right, QUOTE_INDENT
-                        .ENDIF
-                        ;.IF dwPreMode != 0
-                        ;    sub rect.right, PRE_INDENT
-                        ;.ENDIF
-                        
                         mov eax, nTop
                         add eax, nHeight
                         add eax, nLineHeight
                         mov rect.bottom, eax                
-                    
                     .ENDIF
                     
-                    ; reposition subscript text to align below the baseline */
+                    ; reposition subscript text to align below the baseline
                     mov eax, Styles
                     and eax, FV_SUBSCRIPT
                     .IF eax == FV_SUBSCRIPT
@@ -3297,50 +3359,13 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                         or eax, DT_BOTTOM or DT_SINGLELINE
                         mov NewFormat, eax
                     .ENDIF
-                    
-                    mov eax, Styles
-                    and eax, FV_PRE
-                    .IF eax == FV_PRE
-                        mov eax, NewFormat
-                        or eax, DT_EXPANDTABS ;or DT_VCENTER
-                        mov NewFormat, eax
-                    .ENDIF
-                    
-                    .IF dwQuoteMode == 1
-                        Invoke SetBkColor, hdc, dwRGBQuoteBackColor
-                        Invoke FillRect, hdc, Addr rect, QuoteBackBrush
-                        .IF nQuoteLine == 0
-                            mov eax, XPos
-                            sub eax, QUOTE_INDENT
-                            .IF eax == 0
-                                Invoke DrawTextW, hdc, Addr szDblQuoteOpenW, 1, Addr rect, NewFormat
-                                mov eax, nWidthOfSpace
-                                add rect.left, eax
-                                add rect.left, eax
-                                add XPos, eax
-                                add XPos, eax
-                            .ENDIF
-                        .ENDIF
-                    .ENDIF
-                    
-                    .IF dwPreMode != 0
-                        Invoke SetBkColor, hdc, dwRGBCodeBackColor
-                        ;PrintDec rect.left
-                        ;PrintDec XPos
-                        mov eax, XPos
-                        sub eax, PRE_INDENT
-                        .IF eax == 0
-                            sub rect.left, PRE_INDENT
-                            Invoke FillRect, hdc, Addr rect, CodeBackBrush
-                            add rect.left, PRE_INDENT
-                        .ELSE
-                            Invoke FillRect, hdc, Addr rect, CodeBackBrush
-                        .ENDIF
-                    .ENDIF
-                    
+
                     Invoke DrawText, hdc, lpszStart, nTokenLength, Addr rect, NewFormat
                     
-                    ; for the underline style, the spaces between words should be underlined as well
+                    ;----------------------------------------------------------
+                    ; Check if underline style is used. For the underline style
+                    ; the spaces between words should be underlined as well
+                    ;----------------------------------------------------------
                     mov eax, Styles
                     and eax, FV_UNDERLINE
                     mov ebx, XPos
@@ -3351,55 +3376,49 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                             add eax, XPos
                             sub eax, nWidthOfSpace
                             mov rect.left, eax
-                            
                             mov eax, nTop
                             sub eax, nHeight
                             mov rect.top, eax
-                            
                             mov eax, nLeft
                             add eax, XPos
                             mov rect.right, eax
-                            
                             mov eax, nTop
                             mov ebx, nHeight
                             add ebx, nLineHeight
                             sub eax, ebx
                             mov rect.bottom, eax
-                            
                         .ELSE
                             mov eax, nLeft
                             add eax, XPos
                             sub eax, nWidthOfSpace
                             mov rect.left, eax
-                            
                             mov eax, nTop
                             add eax, nHeight
                             mov rect.top, eax
-                            
                             mov eax, nLeft
                             add eax, XPos
                             mov rect.right, eax
-                            
                             mov eax, nTop
                             add eax, nHeight
                             add eax, nLineHeight
                             mov rect.bottom, eax
-                            
                         .ENDIF
-                        
+                        ; Underline text spaces
                         Invoke DrawText, hdc, Addr szSpace, 1, Addr rect, uFormat
-                        
                     .ENDIF
-                    
-                    
                 .ENDIF
-                
+
+                ;----------------------------------------------------------
+                ; Finish drawing text out
+                ;----------------------------------------------------------
+            
             .ENDIF
       
-            ; update current position */
+            ;----------------------------------------------------------
+            ; Update current position for next word/token
+            ;----------------------------------------------------------
             mov eax, nSize.x
             add XPos, eax
-            
             mov eax, XPos
             .IF eax > nMinWidth
                 mov nMinWidth, eax
@@ -3408,64 +3427,60 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             
         .ENDIF
         
+        ;----------------------------------------------------------
+        ; End of Tag/Word checking and processing 
+        ; Loop again to get next token or word
+        ;----------------------------------------------------------
+        mov eax, Tag
+        mov TagPrevious, eax
         mov eax, nTokenLength
         add lpszStart, eax
-        ;Start += TokenLength;
         mov eax, TRUE
-    .ENDW
+        
+    .ENDW ; Loop again
     
+    
+    ;------------------------------------------------------------------
+    ; Finish up and tidy some stuff as well
+    ;------------------------------------------------------------------
     Invoke RestoreDC, hdc, SavedDC
     
     lea ebx, hfontSpecial
     mov nIndex, 1
     mov eax, 1
     .WHILE eax < FV_NUMBER
-    
         mov eax, dword ptr [ebx+eax*DWORD]
         .IF eax != NULL
             Invoke DeleteObject, eax
         .ENDIF
-    
         inc nIndex
         mov eax, nIndex
     .ENDW
-    
     ; do not erase hfontSpecial[0]
-    
     ; store width and height back into the lpRect structure
-    
     mov eax, NewFormat
     and eax, DT_CALCRECT
     .IF eax != 0 && lpRect != NULL
-    
         mov eax, rect.left
         add eax, nMinWidth
         mov rect.right, eax
-        
         mov eax, rect.top
         .IF SDWORD ptr eax < 0
-
             mov eax, rect.top
             mov ebx, nHeight
             add ebx, nLineHeight
             sub eax, ebx
             mov rect.bottom, eax
-            
         .ELSE
-
             mov eax, rect.top
             add eax, nHeight
             add eax, nLineHeight
             mov rect.bottom, eax
-            
         .ENDIF
         Invoke CopyRect, lpRect, Addr rect
     .ENDIF
-    
     mov eax, nHeight
-    
     ret
-
 DrawBBCODE ENDP
 
 
@@ -3496,8 +3511,6 @@ _BBCODE_GetToken PROC USES EBX ECX lpszString:DWORD, dwSize:DWORD, dwTokenLength
     LOCAL nSize:DWORD
     LOCAL dbTagOpen:BYTE
     LOCAL dbTagClose:BYTE
-
-    ;PrintText 'GetToken'
 
     .IF lpszString == NULL
         mov eax, -1
@@ -3563,7 +3576,7 @@ _BBCODE_GetToken PROC USES EBX ECX lpszString:DWORD, dwSize:DWORD, dwTokenLength
     mov IsEndTag, 0
     mov ebx, EndToken
     movzx eax, byte ptr [ebx]
-    .IF al == '<' ; might be a HTML tag, check
+    .IF al == dbTagOpen ; might be a BBCODE tag, check
         inc EndToken
         inc nLength
 
@@ -3626,6 +3639,7 @@ _BBCODE_GetToken PROC USES EBX ECX lpszString:DWORD, dwSize:DWORD, dwTokenLength
         .ENDW
         ; Index contains the tag if one was found or 0 otherwise
         ;PrintDec Index
+        ;PrintStringByAddr lpszTag
 
         .IF Index > 0 ; so it is a tag, see whether to accept parameters
             mov ebx, pTag
@@ -3696,50 +3710,46 @@ _BBCODE_GetToken PROC USES EBX ECX lpszString:DWORD, dwSize:DWORD, dwTokenLength
         .IF ISCRLF(bl)
             movzx ebx, byte ptr [ecx+1]
             .IF ISCRLF(bl) ; cr and lf
+                ;PrintText 'CRLF'
                 inc EndToken
                 inc EndToken
-                inc nLength
-                inc nLength
+                mov nLength, 2
             .ELSE ; was just newline
+                ;PrintText 'LF'
                 inc EndToken
-                inc nLength
+                mov nLength, 1
             .ENDIF
             mov Index, -1 ; special marker to indicate use tBR
+            mov ebx, dwWhiteSpace
+            mov eax, FALSE
+            mov [ebx], eax
         
         .ELSEIF ISTAB(bl)
+            ;PrintText 'TAB'        
             inc EndToken
-            inc nLength
+            mov nLength, 1
             mov Index, -2 ; special marker to indicate use tTAB
         
         .ELSE
+            ;PrintText 'text'
+            ;PrintDec nLength
+            ;push ecx
+            
             mov Index, 0
             mov ecx, EndToken
             movzx ebx, byte ptr [ecx]
             mov eax, nLength
-;            .IF dwPreMode == 1 || dwPreMode == 2
-;                .WHILE (eax < nSize) && ( ISSPACENOT(bl) && ISTABNOT(bl) ) && bl != dbTagOpen  ; '<' (bl != 20h && bl != 09h && bl != 0Ah && bl != 0Bh && bl != 0Ch && bl != 0Dh)
-;                    inc EndToken
-;                    inc ecx
-;                    inc nLength
-;                    movzx ebx, byte ptr [ecx]
-;                    mov eax, nLength
-;                .ENDW
-;                .WHILE (eax < nSize) && (ISSPACE(bl)) ;bl != dbTagOpen  ;|| ISWHITESPACE(bl)
-;                    inc EndToken
-;                    inc ecx
-;                    inc nLength
-;                    movzx ebx, byte ptr [ecx]
-;                    mov eax, nLength
-;                .ENDW
-;            .ELSE
-                .WHILE (eax < nSize) && ( ISSPACENOT(bl) && ISTABNOT(bl) ) && bl != dbTagOpen  ; ISWHITESPACENOT(bl) '<' (bl != 20h && bl != 09h && bl != 0Ah && bl != 0Bh && bl != 0Ch && bl != 0Dh)
-                    inc EndToken
-                    inc ecx
-                    inc nLength
-                    movzx ebx, byte ptr [ecx]
-                    mov eax, nLength
-                .ENDW
-            ;.ENDIF
+            .WHILE (eax < nSize) && ( ISSPACENOT(bl) && ISTABNOT(bl) && ISCRLFNOT(bl) ) && bl != dbTagOpen  ; ISWHITESPACENOT(bl) '<' (bl != 20h && bl != 09h && bl != 0Ah && bl != 0Bh && bl != 0Ch && bl != 0Dh)
+                inc EndToken
+                inc ecx
+                inc nLength
+                movzx ebx, byte ptr [ecx]
+                mov eax, nLength
+            .ENDW
+            ;pop ecx
+            ;mov ecx, EndToken
+            ;DbgDump ecx, nLength
+            
         .ENDIF
     .ENDIF
 
@@ -3783,14 +3793,466 @@ _BBCODE_GetToken PROC USES EBX ECX lpszString:DWORD, dwSize:DWORD, dwTokenLength
 _BBCODE_GetToken ENDP
 
 
+;------------------------------------------------------------------------------
+; _BBCODE_CODE - Code Tag
+;
+; Draws the pre/code text with its background fill and courier font
+; 
+; lpRect is a pointer to a rect, used to pass a few parameters: 
+; nLeft, nTop, nMaxWidth and Addr nHeight (for value and modified on return)
+;
+; Returns in eax width of text drawn. nHeight (pointer to this is stored in  
+; rect.bottom and is passed via lpRect parameter) is updated to reflect the new
+; height of text drawn. nNewCount (lpNewCount parameter) is updated for 
+; characters left in lpszStart. lpszStart (lplpszStart parameter) is updated to
+; point to next token, usually: </pre> or </code>
+;------------------------------------------------------------------------------
+_BBCODE_CODE PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCount:DWORD, dwTokenLength:DWORD, lpRect:DWORD
+    LOCAL lpTagContentText:DWORD
+    LOCAL nTagContentLength:DWORD
+    LOCAL nWidthOfSpace:DWORD
+    LOCAL nLeft:DWORD
+    LOCAL nTop:DWORD
+    LOCAL nMaxWidth:DWORD
+    LOCAL lpdwHeight:DWORD
+    LOCAL nLineHeight:DWORD
+    LOCAL nHeight:DWORD
+    LOCAL rect:RECT
+    LOCAL nSize:POINT
+    
+    Invoke GetTagContents, lplpszStart, lpNewCount, dwTokenLength, GETTAG_CODE, GETTAG_BRACKET_SQUARE
+    .IF eax != NULL
+        mov lpTagContentText, eax
+        Invoke szLen, lpTagContentText
+        mov nTagContentLength, eax
+        Invoke GetFontVariant, hdc, hFont, FV_PRE
+        Invoke SelectObject, hdc, eax
+        Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+        mov eax, nSize.x
+        mov nWidthOfSpace, eax
+        mov eax, nSize.y
+        mov nLineHeight, eax
+        
+        mov ebx, lpRect
+        mov eax, [ebx].RECT.left
+        mov nLeft, eax
+        mov eax, [ebx].RECT.top
+        mov nTop, eax
+        mov eax, [ebx].RECT.right
+        mov nMaxWidth, eax
+        mov eax, [ebx].RECT.bottom
+        mov lpdwHeight, eax
+        
+        mov ebx, lpdwHeight
+        mov eax, [ebx]
+        mov nHeight, eax
+        
+        mov eax, nLeft ;dwLeft ;
+        add eax, PRE_INDENT
+        mov rect.left, eax
+        mov eax, nTop ;dwTop ;
+        add eax, nLineHeight
+        add eax, nHeight
+        mov rect.top, eax
+        mov eax, nLeft ;dwLeft ;
+        add eax, nMaxWidth ;dwMaxWidth ;
+        sub eax, PRE_INDENT
+        mov rect.right, eax
+        mov eax, nTop ;dwTop ;
+        add eax, nHeight
+        add eax, nLineHeight
+        add eax, nLineHeight
+        mov rect.bottom, eax 
+
+        ; Calc height of text to draw
+        Invoke DrawText, hdc, lpTagContentText, nTagContentLength, Addr rect, DT_CALCRECT or DT_WORDBREAK or DT_EXPANDTABS ;or DT_TABSTOP or 1024d
+        ;add eax, 4 ; to increase rect fill space - comment out to restore
+        mov ebx, lpdwHeight
+        add [ebx], eax
+        ;add nHeight, eax ; add height of DT_CALCRECT to nHeight for next lines after this
+        mov eax, nLeft ;dwLeft ;
+        add eax, nMaxWidth ;dwMaxWidth ;
+        sub eax, PRE_INDENT
+        mov rect.right, eax ; reset right to max width as its changed after DT_CALCRECT
+        
+        ; Background fill and draw text
+        Invoke SetTextColor, hdc, dwRGBCodeTextColor
+        Invoke SetBkColor, hdc, dwRGBCodeBackColor
+        sub rect.left, PRE_INDENT
+        add rect.right, PRE_INDENT
+        ;add rect.bottom, 4 ; to increase rect fill space - comment out to restore
+        Invoke FillRect, hdc, Addr rect, CodeBackBrush
+        add rect.left, PRE_INDENT
+        sub rect.right, PRE_INDENT
+        ;add rect.top, 1 ; to increase rect fill space - comment out to restore
+
+        Invoke DrawText, hdc, lpTagContentText, nTagContentLength, Addr rect,  DT_WORDBREAK or DT_EXPANDTABS ;or DT_TABSTOP or 1024d
+        Invoke GlobalFree, lpTagContentText
+        mov ebx, lpNewCount
+        mov eax, [ebx]
+        sub eax, nTagContentLength
+        mov [ebx], eax ; adjust (reduce) count of chars now left to process
+        mov eax, nTagContentLength
+        mov ebx, lplpszStart
+        add [ebx], eax ; adjust string to point at end of pre
+        mov eax, nSize.x
+    .ELSE
+        xor eax, eax
+    .ENDIF
+    ret
+
+_BBCODE_CODE ENDP
 
 
+;------------------------------------------------------------------------------
+; _BBCODE_QUOTE - Quote Tag or Q Tag
+; 
+; Draws the quote text surrounded by curly double quotes. Quote text is 
+; centered, has a slightly larger font and has a background fill.
+;
+; lpRect is a pointer to a rect, used to pass a few parameters: 
+; nLeft, nTop, nMaxWidth and Addr nHeight (for value and modified on return)
+;
+; Returns in eax width of text drawn. nHeight (pointer to this is stored in  
+; rect.bottom and is passed via lpRect parameter) is updated to reflect the new
+; height of text drawn. nNewCount (lpNewCount parameter) is updated for 
+; characters left in lpszStart. lpszStart (lplpszStart parameter) is updated to
+; point to next token, usually: </q> or </quote> or </blockq>
+;------------------------------------------------------------------------------
+_BBCODE_QUOTE PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCount:DWORD, dwTokenLength:DWORD, lpRect:DWORD, dwTag:DWORD
+    LOCAL lpTagContentText:DWORD
+    LOCAL nTagContentLength:DWORD
+    LOCAL lpWideTagContentText:DWORD
+    LOCAL nWideTagContentLength:DWORD    
+    LOCAL nWidthOfSpace:DWORD
+    LOCAL nLeft:DWORD
+    LOCAL nTop:DWORD
+    LOCAL nMaxWidth:DWORD
+    LOCAL lpdwHeight:DWORD
+    LOCAL nLineHeight:DWORD
+    LOCAL nHeight:DWORD
+    LOCAL rect:RECT
+    LOCAL nSize:POINT
+
+    mov eax, dwTag
+    .IF eax == tQUOTE1
+        mov eax, GETTAG_Q
+    .ELSEIF eax == tQUOTE2
+        mov eax, GETTAG_QUOTE
+    .ENDIF
+    Invoke GetTagContents, lplpszStart, lpNewCount, dwTokenLength, eax, GETTAG_BRACKET_SQUARE
+    .IF eax != NULL
+        mov lpTagContentText, eax
+        Invoke szLen, lpTagContentText
+        mov nTagContentLength, eax
+        shl eax, 1 ; x 2
+        add eax, 8
+        mov nWideTagContentLength, eax
+        Invoke GlobalAlloc, GMEM_FIXED or GMEM_ZEROINIT, eax
+        mov lpWideTagContentText, eax
+        
+        Invoke lstrcpyW, lpWideTagContentText, Addr szDblQuoteOpenW
+        Invoke szCatStrToWide, lpWideTagContentText, lpTagContentText
+        Invoke lstrcatW, lpWideTagContentText, Addr szDblQuoteCloseW
+        ;DbgDump lpWideTagContentText, nWideTagContentLength
+        Invoke GetFontVariant, hdc, hFont, FV_QUOTE
+        Invoke SelectObject, hdc, eax
+        Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+        mov eax, nSize.x
+        mov nWidthOfSpace, eax
+        mov eax, nSize.y
+        mov nLineHeight, eax
+
+        mov ebx, lpRect
+        mov eax, [ebx].RECT.left
+        mov nLeft, eax
+        mov eax, [ebx].RECT.top
+        mov nTop, eax
+        mov eax, [ebx].RECT.right
+        mov nMaxWidth, eax
+        mov eax, [ebx].RECT.bottom
+        mov lpdwHeight, eax
+        
+        mov ebx, lpdwHeight
+        mov eax, [ebx]
+        mov nHeight, eax
+
+        mov eax, nLeft
+        add eax, QUOTE_INDENT
+        mov rect.left, eax
+        mov eax, nTop
+        add eax, nLineHeight
+        add eax, nHeight
+        mov rect.top, eax
+        mov eax, nLeft
+        add eax, nMaxWidth
+        sub eax, QUOTE_INDENT
+        mov rect.right, eax
+        mov eax, nTop
+        add eax, nHeight
+        add eax, nLineHeight
+        add eax, nLineHeight
+        mov rect.bottom, eax                          
+
+        ; Calc height of text to draw
+        ;Invoke DrawText, hdc, lpTagContentText, nTagContentLength, Addr rect, DT_WORDBREAK or DT_EXPANDTABS or DT_CALCRECT
+        add nTagContentLength, 2 ; add two for extra "" quotemarks
+        Invoke DrawTextW, hdc, lpWideTagContentText, nTagContentLength, Addr rect, DT_CENTER or DT_WORDBREAK or DT_EXPANDTABS or DT_CALCRECT
+        sub nTagContentLength, 2 ; restore original width
+        
+        mov ebx, lpdwHeight
+        add [ebx], eax        
+        ;add nHeight, eax ; add height of DT_CALCRECT to nHeight for next lines after this
+        mov eax, nLeft
+        add eax, nMaxWidth
+        sub eax, QUOTE_INDENT
+        mov rect.right, eax ; reset right to max width as its changed after DT_CALCRECT
+        
+        ; Background fill and draw text
+        Invoke SetTextColor, hdc, dwRGBQuoteTextColor
+        Invoke SetBkColor, hdc, dwRGBQuoteBackColor
+        sub rect.left, QUOTE_INDENT
+        add rect.right, QUOTE_INDENT
+        Invoke FillRect, hdc, Addr rect, QuoteBackBrush
+        add rect.left, QUOTE_INDENT
+        sub rect.right, QUOTE_INDENT
+        ;Invoke DrawText, hdc, lpTagContentText, nTagContentLength, Addr rect,  DT_WORDBREAK or DT_EXPANDTABS
+        add nTagContentLength, 2 ; add two for extra "" quotemarks
+        Invoke DrawTextW, hdc, lpWideTagContentText, nTagContentLength, Addr rect, DT_CENTER or DT_WORDBREAK or DT_EXPANDTABS
+        sub nTagContentLength, 2 ; restore original width
+        Invoke GlobalFree, lpTagContentText
+        Invoke GlobalFree, lpWideTagContentText
+        
+;        mov eax, NewCount
+;        sub eax, nTagContentLength
+;        mov NewCount, eax ; adjust (reduce) count of chars now left to process
+;        mov eax, nTagContentLength ; adjust string to point at end of pre
+;        add lpszStart, eax
+        
+        mov ebx, lpNewCount
+        mov eax, [ebx]
+        sub eax, nTagContentLength
+        mov [ebx], eax ; adjust (reduce) count of chars now left to process
+        mov eax, nTagContentLength
+        mov ebx, lplpszStart
+        add [ebx], eax ; adjust string to point at end of pre
+        mov eax, nSize.x        
+    .ELSE
+        xor eax, eax
+    .ENDIF
+    ret
+
+_BBCODE_QUOTE ENDP
 
 
+;------------------------------------------------------------------------------
+; _BBCODE_COLOR - Color Tag
+; 
+; Sets the color of the text based on the color parameter string.
+; 
+; Returns in eax 0
+;------------------------------------------------------------------------------
+_BBCODE_COLOR PROC hdc:DWORD, dwTag:DWORD, lpszStart:DWORD, lpColorStack:DWORD, lpdwColorStackTop:DWORD
+    LOCAL lpColString:DWORD
+    LOCAL dwRGB:DWORD
+
+    mov eax, dwTag
+    and eax, ENDFLAG
+    .IF eax == 0 ; <color>
+        mov eax, lpszStart ; <color='#C00000'>
+        add eax, 7d
+        mov lpColString, eax
+        Invoke ParseColor, Addr lpColString
+        mov dwRGB, eax
+        Invoke ColorStackPush, hdc, dwRGB, lpColorStack, lpdwColorStackTop
+    .ELSE ; </color>
+        Invoke ColorStackPop, hdc, lpColorStack, lpdwColorStackTop
+    .ENDIF
+    xor eax, eax
+    ret
+_BBCODE_COLOR ENDP
 
 
+;------------------------------------------------------------------------------
+; _BBCODE_LIST - List Tag - Ordered or Unordered List
+;
+; Calculates indents for list level and stores that info on the list stack.
+;
+; Returns in eax 0
+;------------------------------------------------------------------------------
+_BBCODE_LIST PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, lpListLevel:DWORD, dwTag:DWORD 
+    LOCAL nSize:POINT
+    LOCAL nWidthOfSpace:DWORD
+    LOCAL ListLevel:DWORD
+    LOCAL dwListType:DWORD
+    LOCAL dwListIndent:DWORD
+    LOCAL dwListBulletIndent:DWORD
+    
+    Invoke SelectObject, hdc, hFont
+    Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+    mov eax, nSize.x
+    mov nWidthOfSpace, eax
+    ;mov eax, nSize.y
+    ;mov nLineHeight, eax                  
+    mov eax, dwTag
+    .IF eax == tLIST
+        mov dwListType, 0 ; unordered list - bullet symbols
+    .ELSE
+        mov dwListType, 1 ; ordered list - numbers
+        ;mov dwListCounter, 1
+    .ENDIF
+    
+    mov ebx, lpListLevel
+    mov eax, [ebx]
+    mov ListLevel, eax
+
+    ; calc indents
+    mov eax, ListLevel
+    inc eax
+    mov ebx, LIST_INDENT
+    mul ebx
+    mov ebx, nWidthOfSpace
+    mul ebx
+    mov dwListIndent, eax
+    mov eax, ListLevel
+    inc eax
+    mov ebx, LIST_INDENT
+    mul ebx
+    sub eax, LIST_INDENT_BULLET
+    mov ebx, nWidthOfSpace
+    mul ebx
+    mov dwListBulletIndent, eax
+
+    Invoke ListStackPush, dwListType, dwListIndent, dwListBulletIndent, lpListStack, lpListLevel
+    xor eax, eax
+    ret
+_BBCODE_LIST ENDP
 
 
+;------------------------------------------------------------------------------
+; _BBCODE_LISTITEM - List Item Tag
+;
+; Indents based on list level and draws bullets or numbers based on list type.
+; The text for the list item is handled normally by the main DrawBBCODE
+; function and parsed for other tags as normal.
+;
+; lpRect is a pointer to a rect, used to pass a few parameters: 
+; nLeft, nTop, nMaxWidth and Addr nHeight (for value and modified on return)
+;
+; Returns in eax width of text drawn. nHeight (pointer to this is stored in  
+; rect.bottom and is passed via lpRect parameter) is updated to reflect the new
+; height of bullets or numbers drawn.
+;------------------------------------------------------------------------------
+_BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwListLevel:DWORD, lpRect:DWORD, dwNewFormat:DWORD
+    LOCAL nSize:POINT
+    LOCAL rect:RECT
+    LOCAL nLeft:DWORD
+    LOCAL nTop:DWORD
+    LOCAL nMaxWidth:DWORD
+    LOCAL lpdwHeight:DWORD
+    LOCAL nHeight:DWORD
+    LOCAL nLineHeight:DWORD
+    LOCAL nWidthOfSpace:DWORD
+    LOCAL dwListType:DWORD
+    LOCAL dwListIndent:DWORD
+    LOCAL dwListBulletIndent:DWORD
+    LOCAL szListItemNo[8]:BYTE
+
+    mov eax, dwNewFormat
+    and eax, DT_SINGLELINE
+    .IF eax != DT_SINGLELINE
+
+        Invoke GetFontVariant, hdc, hFont, FV_BOLD or FV_ITALIC
+        Invoke SelectObject, hdc, eax            
+        ;Invoke SelectObject, hdc, hfontBase
+        Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
+        mov eax, nSize.x
+        mov nWidthOfSpace, eax
+        mov eax, nSize.y
+        mov nLineHeight, eax       
+        
+        Invoke ListStackPeek, Addr dwListType, Addr dwListIndent, Addr dwListBulletIndent, lpListStack, dwListLevel
+        
+        ; Get params from rect for local vars
+        mov ebx, lpRect
+        mov eax, [ebx].RECT.left
+        mov nLeft, eax
+        mov eax, [ebx].RECT.top
+        mov nTop, eax
+        mov eax, [ebx].RECT.right
+        mov nMaxWidth, eax
+        mov eax, [ebx].RECT.bottom
+        mov lpdwHeight, eax
+        
+        mov ebx, lpdwHeight
+        mov eax, [ebx]
+        mov nHeight, eax    
+    
+        mov eax, nLeft
+        add eax, dwListBulletIndent
+        mov rect.left, eax
+        mov eax, nTop
+        add eax, nLineHeight
+        add eax, 3d
+        add eax, nHeight
+        mov rect.top, eax
+        mov eax, nLeft
+        add eax, nMaxWidth
+        mov rect.right, eax
+        mov eax, nTop
+        add eax, nHeight
+        add eax, nLineHeight
+        add eax, nLineHeight
+        mov rect.bottom, eax                    
+        
+        .IF dwListType == 0 ; Unorderded list, so draw bullet
+            Invoke GetFontVariant, hdc, hFont, FV_BOLD
+            Invoke SelectObject, hdc, eax
+            mov eax, dwListLevel
+            .IF eax == 1 || eax == 4 || eax == 7 || eax >= 10
+                Invoke DrawTextW, hdc, Addr szBulletSymbolW, 1, Addr rect, DT_LEFT
+            .ELSEIF eax == 2 || eax == 5 || eax == 8
+                Invoke DrawTextW, hdc, Addr szTriangleBulletSymbolW, 1, Addr rect, DT_LEFT ;szWhiteBulletSymbolW
+            .ELSEIF eax == 3 || eax == 6 || eax == 9
+                Invoke DrawTextW, hdc, Addr szWhiteBulletSymbolW, 1, Addr rect, DT_LEFT
+            .ENDIF
+        .ELSE ; draw number
+            Invoke GetFontVariant, hdc, hFont, FV_NORMAL
+            Invoke SelectObject, hdc, eax
+            Invoke dwtoa, dwListType, Addr szListItemNo
+            Invoke szCatStr, Addr szListItemNo, Addr szFullstop
+            Invoke szLen, Addr szListItemNo
+            .IF eax == 2 ; for 1. to 9.
+                mov eax, nLeft
+                add eax, dwListBulletIndent
+                sub eax, nWidthOfSpace
+            .ELSEIF eax == 3 ; for 10.-99.
+                mov eax, nLeft
+                add eax, dwListBulletIndent
+                sub eax, nWidthOfSpace
+                sub eax, nWidthOfSpace
+            .ELSE ; for 100.-999.
+                mov eax, nLeft
+                add eax, dwListBulletIndent
+                sub eax, nWidthOfSpace
+                sub eax, nWidthOfSpace
+                sub eax, nWidthOfSpace
+            .ENDIF
+            mov rect.left, eax
+            Invoke DrawText, hdc, Addr szListItemNo, -1, Addr rect, DT_LEFT
+            inc dwListType
+            Invoke ListStackSetCounter, dwListType, lpListStack, dwListLevel
+        .ENDIF
+        mov eax, nLineHeight
+        add eax, 2d
+        mov ebx, lpdwHeight
+        add [ebx], eax ; add nHeight, eax
+         mov eax, dwListIndent
+    .ELSE
+        xor eax, eax
+    .ENDIF
+    ret
+_BBCODE_LISTITEM ENDP
 
 
 

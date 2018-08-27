@@ -5,7 +5,7 @@
 option casemap:none
 include \masm32\macros\macros.asm
 
-DEBUG32 EQU 1
+;DEBUG32 EQU 1
 
 IFDEF DEBUG32
     PRESERVEXMMREGS equ 1
@@ -43,7 +43,7 @@ WinMain proc hInst:HINSTANCE,hPrevInst:HINSTANCE,CmdLine:LPSTR,CmdShow:DWORD
     LOCAL   msg:MSG
 
     mov     wc.cbSize, sizeof WNDCLASSEX
-    mov     wc.style, CS_HREDRAW or CS_VREDRAW
+    mov     wc.style, 0;CS_HREDRAW or CS_VREDRAW
     mov     wc.lpfnWndProc, offset WndProc
     mov     wc.cbClsExtra, NULL
     mov     wc.cbWndExtra, DLGWINDOWEXTRA
@@ -108,11 +108,16 @@ WndProc proc hWin:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
                 mov eax, wParam
                 shr eax, 16d
                 ; we have resource id
-                PrintText 'Hyperlink clicked with res id'
-                PrintDec eax
+                IFDEF DEBUG32
+                    PrintText 'Hyperlink clicked with res id'
+                    PrintDec eax
+                ENDIF
             .ENDIF
         .ENDIF
 
+    .ELSEIF eax == WM_SIZE
+        Invoke InvalidateRect, hWin, NULL, TRUE
+    
     .ELSEIF eax == WM_CLOSE
         Invoke DestroyWindow,hWin
 
@@ -151,7 +156,7 @@ DoPaint PROC hWin:DWORD
     
     Invoke SelectObject, hdc, hFontSegioUI
     mov hFontOld, eax
-    Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK, 0;Addr hHyperlink
+    Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK, Addr hHyperlink
     ;Invoke DrawBBCODE, hdc, Addr szBBCodeText, -1, Addr rect, DT_WORDBREAK
     Invoke SelectObject, hdc, hFontOld
 

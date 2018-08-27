@@ -140,6 +140,15 @@ _HTMLCODE_LIST          PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                
 _HTMLCODE_LISTITEM      PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
 
 
+; DrawBBCODE Functions:
+_BBCODE_GetToken        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwWhiteSpace, lpTagInfo
+_BBCODE_CODE            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect
+_BBCODE_QUOTE           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect, dwTagType
+_BBCODE_COLOR           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, dwTag, lpszStart, lpColorStack, lpdwColorStackTop
+_BBCODE_LIST            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, hFont, lpListStack, lpListLevel, dwTag 
+_BBCODE_LISTITEM        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
+
+
 ; Utility Functions:
 GetTagContents          PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwType, dwTagBracket
 GetFontVariant          PROTO :DWORD,:DWORD,:DWORD                              ; hdc, hfontSource, Styles
@@ -155,22 +164,13 @@ szCatStrToWide          PROTO :DWORD,:DWORD                                     
 szLinkUrlTitle          PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; lpszHrefString, dwHrefStringLength, lpszUrl, lpszTitle
 
 
-; DrawBBCODE Functions:
-_BBCODE_GetToken        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpszString, dwSize, dwTokenLength, dwWhiteSpace, lpTagInfo
-_BBCODE_CODE            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect
-_BBCODE_QUOTE           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, dwTokenLength, lpRect, dwTagType
-_BBCODE_COLOR           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, dwTag, lpszStart, lpColorStack, lpdwColorStackTop
-_BBCODE_LIST            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, hFont, lpListStack, lpListLevel, dwTag 
-_BBCODE_LISTITEM        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
-
-
 DrawTextEXTLinkCreate   PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hWndParent, dwXpos, dwYpos, dwWidth, dwHeight
 DrawTextEXTLinkProc     PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; hWin, uMsg, wParam, lParam
 DrawTextEXTLinkPaint    PROTO :DWORD                                            ; hWin
 DrawTextEXTLinkAddUrl   PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; hWin, lpRect, lpszLinkUrl, lpszLinkTitle
 DrawTextEXTLinkReset    PROTO :DWORD                                            ; hWin
 DrawTextEXTLinkClick    PROTO :DWORD                                            ; hWin
-
+DrawTextEXTLinkReady    PROTO :DWORD                                            ; hWin
 
 
 .CONST
@@ -528,27 +528,29 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
 
     Invoke RtlZeroMemory, Addr ColorStack, SIZEOF ColorStack
     Invoke RtlZeroMemory, Addr ListStack, SIZEOF ListStack
-    ;Invoke RtlZeroMemory, Addr szLinkUrl, SIZEOF szLinkUrl
-    ;Invoke RtlZeroMemory, Addr szLinkTitle, SIZEOF szLinkTitle
-    
+
     Invoke WindowFromDC, hdc
     mov hDTELinkParent, eax
     .IF lpHyperlink != NULL
         mov ebx, lpHyperlink
         mov eax, [ebx]
         mov hDTELink, eax
-    .ENDIF                
+    .ENDIF
     Invoke IsWindow, hDTELink
     .IF hDTELink != NULL && eax != FALSE ; Already exists, make sure its sized to fit our area
-        Invoke SetWindowLong, hDTELink, DTEL_ENABLEDSTATE, FALSE ; disable while we add links
-        Invoke DrawTextEXTLinkReset, hDTELink
+        IFDEF DEBUG32
+            PrintText 'HYPERLINKS ALREADY EXISTS OK'
+        ENDIF         
+        ;PrintText 'Already Exists'
+        ;Invoke SetWindowLong, hDTELink, DTEL_ENABLEDSTATE, FALSE ; disable while we add links
         mov eax, nRight
         add eax, nLeft
         add eax, nLeft
         mov ebx, nBottom
         add ebx, nTop
         add ebx, nTop
-        Invoke SetWindowPos, hDTELink, NULL, 0, 0, eax, ebx, SWP_NOZORDER or SWP_NOSENDCHANGING
+        ;Invoke SetWindowPos, hDTELink, NULL, 0, 0, eax, ebx, SWP_NOZORDER or SWP_NOSENDCHANGING or SWP_NOACTIVATE
+        Invoke DrawTextEXTLinkReset, hDTELink
     .ELSE ; create hyperlink window
         mov eax, nRight
         add eax, nLeft
@@ -556,18 +558,29 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
         mov ebx, nBottom
         add ebx, nTop
         add ebx, nTop
-        Invoke DrawTextEXTLinkCreate, hDTELinkParent, 0, 0, eax, ebx
-        .IF eax != NULL
-            mov hDTELink, eax
-            .IF lpHyperlink != NULL
+        .IF lpHyperlink != NULL
+            Invoke DrawTextEXTLinkCreate, hDTELinkParent, 0, 0, eax, ebx
+            .IF eax != NULL
+                mov hDTELink, eax
                 mov ebx, lpHyperlink
                 mov [ebx], eax
+                IFDEF DEBUG32
+                    PrintText 'HYPERLINKS OK'
+                ENDIF                   
+            .ELSE
+                mov hDTELink, 0
+                IFDEF DEBUG32
+                    PrintText 'FAILED TO CREATE HYPERLINK - NO LINK URLS'
+                ENDIF                
             .ENDIF
         .ELSE
-            ;mov hDTELink, 0 ; add this to disable altogether if used didnt pass lpHyperlink
+            mov hDTELink, 0
+            IFDEF DEBUG32
+                PrintText 'HYPERLINK IS NOT SET - NO LINK URLS'
+            ENDIF
         .ENDIF
     .ENDIF
-    
+
     ; TODO - check if text has no tags, if none then pass onto DrawText the entire lot
     
     mov eax, lpString
@@ -1162,7 +1175,7 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
     .ENDIF
     Invoke IsWindow, hDTELink
     .IF hDTELink != NULL && eax != FALSE
-        Invoke SetWindowLong, hDTELink, DTEL_ENABLEDSTATE, TRUE ; re-enable after adding all links
+        Invoke DrawTextEXTLinkReady, hDTELink
     .ENDIF
     mov eax, nHeight
     ret
@@ -1351,7 +1364,7 @@ _HTMLCODE_GetToken PROC USES EBX ECX lpszString:DWORD, lpdwSize:DWORD, lpdwToken
                 mov ecx, EndToken
                 movzx ebx, byte ptr [ecx]
                 .IF bl != dbTagClose ;'>'
-                     PrintText '.IF bl != dbTagClose'
+                    ;PrintText '.IF bl != dbTagClose'
                     mov Index, 0
                 .else
                 .ENDIF
@@ -1805,29 +1818,26 @@ _HTMLCODE_ALINK PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCo
                 Invoke SetWindowLong, hDTELink, DTEL_BACKCOLOR, eax ; back color
                 ;Invoke SetWindowLong, hDTELink, DTEL_TEXTCOLOR, 0C87C0Bh ; text color
                 Invoke DrawTextEXTLinkAddUrl, hDTELink, Addr rect, Addr szLinkUrl, Addr szLinkTitle
+            .ELSE
+            
+                Invoke GetCursorPos, Addr pt
+                Invoke WindowFromDC, hdc
+                mov hWndDC, eax
+                ;PrintDec hWndDC
+                Invoke ScreenToClient, hWndDC, Addr pt
+                Invoke PtInRect, Addr rect, pt.x, pt.y
+                .IF eax == TRUE
+                    Invoke GetFontVariant, hdc, hFont, FV_UNDERLINE
+                    Invoke SelectObject, hdc, eax                
+                .ELSE
+                    Invoke GetFontVariant, hdc, hFont, FV_NORMAL
+                    Invoke SelectObject, hdc, eax                
+                .ENDIF
+                Invoke GetWindowLong, hDTELink, DTEL_BACKCOLOR
+                Invoke SetTextColor, hdc, eax
+                Invoke DrawText, hdc, Addr szLinkTitle, nLenLinkTitle, Addr rect,  DT_WORDBREAK or DT_EXPANDTABS
             .ENDIF
 
-;            Invoke GetCursorPos, Addr pt
-;            Invoke WindowFromDC, hdc
-;            mov hWndDC, eax
-;            ;PrintDec hWndDC
-;            Invoke ScreenToClient, hWndDC, Addr pt
-;            Invoke PtInRect, Addr rect, pt.x, pt.y
-;            .IF eax == TRUE
-;                ;Invoke SendMessage, hDTELink, WM_MOUSEMOVE, 0, 0
-;                ;Invoke SetWindowLong, hDTElink, 0, TRUE
-;                ;PrintText 'In rect'
-;                Invoke GetFontVariant, hdc, hFont, FV_UNDERLINE
-;                Invoke SelectObject, hdc, eax                
-;            .ELSE
-;                ;Invoke SetWindowLong, hDTElink, 0, FALSE
-;                ;PrintText 'Not in rect'
-;                Invoke GetFontVariant, hdc, hFont, FV_NORMAL
-;                Invoke SelectObject, hdc, eax                
-;            .ENDIF
-;            Invoke SetTextColor, hdc, 0C87C0Bh
-;            Invoke DrawText, hdc, Addr szLinkTitle, nLenLinkTitle, Addr rect,  DT_WORDBREAK or DT_EXPANDTABS
-            
             Invoke GlobalFree, lpTagContentText
             
             mov ebx, lpNewCount
@@ -4485,17 +4495,27 @@ DrawTextEXTLinkProc PROC USES EBX hWin:HWND, uMsg:UINT, wParam:WPARAM, lParam:LP
             Invoke InvalidateRect, hWin, NULL, TRUE
         .ENDIF
 
-    .ELSEIF eax == WM_ENABLE
-        Invoke SetWindowLong, hWin, DTEL_ENABLEDSTATE, wParam ; EnabledState
-        ret
+    .ELSEIF eax == WM_KILLFOCUS
+        Invoke SetWindowLong, hWin, DTEL_MOUSEOVER, FALSE ; Mouseover
+        Invoke InvalidateRect, hWin, NULL, TRUE
 
     .ELSEIF eax == WM_ERASEBKGND
-        mov eax, 1
-        ret
+        ;Invoke GetWindowLong, hWin, DTEL_ENABLEDSTATE ; EnabledState
+        ;.IF eax == TRUE
+            mov eax, 1
+        ;.ELSE
+        ;    mov eax, 0
+        ;.ENDIF
+        ret        
 
     .ELSEIF eax == WM_PAINT
-        Invoke DrawTextEXTLinkPaint, hWin
-        mov eax, 0
+        ;Invoke GetWindowLong, hWin, DTEL_ENABLEDSTATE ; EnabledState
+        ;.IF eax == TRUE    
+            Invoke DrawTextEXTLinkPaint, hWin
+            mov eax, 0
+        ;.ELSE
+        ;    mov eax, 1
+        ;.ENDIF
         ret
     .ENDIF
     
@@ -4515,23 +4535,34 @@ DrawTextEXTLinkPaint PROC hWin:DWORD
     LOCAL lpszUrl:DWORD
     LOCAL lpszTitle:DWORD
     LOCAL hdc:DWORD
+    LOCAL hdcMem:DWORD
+    LOCAL hbmMem:DWORD
+    LOCAL hOldBitmap:DWORD
+    LOCAL hBrush:DWORD
+    LOCAL hOldBrush:DWORD
+    LOCAL BackColor:DWORD
+    LOCAL TextColor:DWORD
     LOCAL SavedDC:DWORD
     LOCAL MouseOver:DWORD
     LOCAL ps:PAINTSTRUCT
     LOCAL clientrect:RECT
     LOCAL rect:RECT
     LOCAL pt:POINT
-
+    LOCAL hRgn:DWORD
+    
+    ;PrintText 'DrawTextEXTLinkPaint'
+    
     Invoke BeginPaint, hWin, Addr ps
     mov hdc, eax
     Invoke GetClientRect, hWin, Addr clientrect
-    
+
     Invoke GetWindowLong, hWin, DTEL_LINKURLSTOTAL ; total link urls
     .IF eax == 0
         Invoke EndPaint, hWin, Addr ps
         ret
     .ENDIF
     mov nTotalLinkUrls, eax
+    ;PrintDec nTotalLinkUrls
     
     Invoke GetWindowLong, hWin, DTEL_LINKURLSARRAY ; pointer to link url arrays
     .IF eax == 0
@@ -4543,19 +4574,41 @@ DrawTextEXTLinkPaint PROC hWin:DWORD
     
     Invoke GetWindowLong, hWin, DTEL_MOUSEOVER ; mouseover
     mov MouseOver, eax
-    
+    Invoke GetWindowLong, hWin, DTEL_BACKCOLOR ; back color
+    mov BackColor, eax    
+    Invoke GetWindowLong, hWin, DTEL_TEXTCOLOR ; text color
+    mov TextColor, eax
     Invoke GetCursorPos, Addr pt
     Invoke ScreenToClient, hWin, Addr pt    
     
-    Invoke SaveDC, hdc
-    mov SavedDC, eax
-    Invoke GetStockObject, HOLLOW_BRUSH
-    Invoke FillRect, hdc, Addr clientrect, eax    
-    Invoke SetBkMode, hdc, OPAQUE
-    Invoke GetWindowLong, hWin, DTEL_BACKCOLOR ; back color
-    Invoke SetBkColor, hdc, eax
-    Invoke GetWindowLong, hWin, DTEL_TEXTCOLOR ; text color
-    Invoke SetTextColor, hdc, eax 
+    ;Invoke SaveDC, hdc
+    ;mov SavedDC, eax
+    
+    ;----------------------------------------------------------
+    ; Setup Double Buffering
+    ;----------------------------------------------------------
+    Invoke CreateCompatibleDC, hdc
+    mov hdcMem, eax
+    Invoke CreateCompatibleBitmap, hdc, clientrect.right, clientrect.bottom
+    mov hbmMem, eax
+    Invoke SelectObject, hdcMem, hbmMem
+    mov hOldBitmap, eax    
+
+    ;Invoke GetStockObject, HOLLOW_BRUSH
+    Invoke GetStockObject, DC_BRUSH
+    mov hBrush, eax
+    Invoke SelectObject, hdcMem, eax
+    mov hOldBrush, eax
+    Invoke SetDCBrushColor, hdcMem, BackColor    
+    Invoke FillRect, hdcMem, Addr clientrect, hBrush
+    
+    Invoke SetBkMode, hdcMem, OPAQUE
+    Invoke SetBkColor, hdcMem, BackColor    
+    ;Invoke SetBkMode, hdcMem, OPAQUE
+    ;Invoke GetWindowLong, hWin, DTEL_BACKCOLOR ; back color
+    ;Invoke SetBkColor, hdcMem, eax
+    
+    Invoke SetTextColor, hdcMem, TextColor
 
     mov nCurrentLinkUrl, 0
     mov eax, 0
@@ -4571,20 +4624,44 @@ DrawTextEXTLinkPaint PROC hWin:DWORD
         Invoke PtInRect, Addr rect, pt.x, pt.y
         .IF eax == TRUE && MouseOver == TRUE
             Invoke GetWindowLong, hWin, DTEL_FONTUNDERLINE ; font underline
-            Invoke SelectObject, hdc, eax
+            Invoke SelectObject, hdcMem, eax
         .ELSE
             Invoke GetWindowLong, hWin, DTEL_FONTNORMAL ; font normal
-            Invoke SelectObject, hdc, eax
+            Invoke SelectObject, hdcMem, eax
         .ENDIF
  
-        Invoke DrawText, hdc, lpszTitle, -1, Addr rect, DT_LEFT
+        Invoke DrawText, hdcMem, lpszTitle, -1, Addr rect, DT_LEFT
 
         add ptrLinkUrlEntry, SIZEOF LINKURL
         inc nCurrentLinkUrl
         mov eax, nCurrentLinkUrl
     .ENDW    
+    
+    ;----------------------------------------------------------
+    ; BitBlt from hdcMem back to hdc
+    ;----------------------------------------------------------
+    Invoke BitBlt, hdc, 0, 0, clientrect.right, clientrect.bottom, hdcMem, 0, 0, SRCCOPY
+    
 
-    Invoke RestoreDC, hdc, SavedDC
+    ;----------------------------------------------------------
+    ; Cleanup
+    ;----------------------------------------------------------
+    .IF hOldBitmap != 0
+        Invoke SelectObject, hdcMem, hOldBitmap
+        Invoke DeleteObject, hOldBitmap
+    .ENDIF
+    .IF hOldBrush != 0
+        Invoke SelectObject, hdcMem, hOldBrush
+        Invoke DeleteObject, hOldBrush
+    .ENDIF     
+    .IF hBrush != 0
+        Invoke DeleteObject, hBrush
+    .ENDIF       
+    Invoke SelectObject, hdcMem, hbmMem
+    Invoke DeleteObject, hbmMem
+    Invoke DeleteDC, hdcMem
+    
+    ;Invoke RestoreDC, hdc, SavedDC
 
     Invoke EndPaint, hWin, Addr ps
 
@@ -4611,6 +4688,8 @@ DrawTextEXTLinkAddUrl PROC USES EBX hWin:DWORD, lpRect:DWORD, lpszLinkUrl:DWORD,
     LOCAL hWinRgn:DWORD
     LOCAL hRgn:DWORD
     LOCAL rect:RECT
+
+    ;PrintText 'DrawTextEXTLinkAddUrl'
 
     .IF hWin == 0 || lpszLinkUrl == 0
         mov eax, FALSE
@@ -4643,33 +4722,41 @@ DrawTextEXTLinkAddUrl PROC USES EBX hWin:DWORD, lpRect:DWORD, lpszLinkUrl:DWORD,
         lea ebx, [ebx].LINKURL.szLinkTitle
         Invoke lstrcpyn, ebx, lpszLinkTitle, LINKURL_MAXLENGTH
         
-        Invoke CopyRect, Addr rect, lpRect
-
-        .IF nTotalLinkUrls == 0
-            ;PrintText 'FIRST REGION'
-            Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
-            mov hWinRgn, eax
-        .ELSE
-            Invoke CreateRectRgn, 0, 0, 0, 0
-            mov hWinRgn, eax
-            Invoke GetWindowRgn, hWin, hWinRgn
-            .IF eax == NULLREGION
-                ;PrintText 'NULLREGION'
-                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
-                mov hRgn, eax
-                Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_COPY
-             .ELSEIF eax == ERROR
-                ;PrintText 'ERROR'
-                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
-                mov hWinRgn, eax
-            .ELSE
-                ;PrintText 'OTHER REGION'
-                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
-                mov hRgn, eax
-                Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_OR
-            .ENDIF
-        .ENDIF
-        Invoke SetWindowRgn, hWin, hWinRgn, FALSE
+;        Invoke CopyRect, Addr rect, lpRect
+;
+;        ;PrintDec rect.left
+;        ;PrintDec rect.top
+;
+;        .IF nTotalLinkUrls == 0
+;            ;PrintText 'FIRST REGION'
+;            
+;            ;Invoke CreateRectRgn, 0, 0, 0, 0
+;            ;mov hRgn, eax
+;            Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
+;            mov hWinRgn, eax
+;            ;Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_OR
+;        .ELSE
+;            Invoke CreateRectRgn, 0, 0, 0, 0
+;            mov hWinRgn, eax
+;            Invoke GetWindowRgn, hWin, hWinRgn
+;            .IF eax == NULLREGION
+;                ;PrintText 'NULLREGION'
+;                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
+;                mov hRgn, eax
+;                Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_COPY
+;             .ELSEIF eax == ERROR
+;                ;PrintText 'ERROR'
+;                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
+;                mov hWinRgn, eax
+;            .ELSE
+;                ;PrintText 'OTHER REGION'
+;                Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
+;                mov hRgn, eax
+;                Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_OR;RGN_OR
+;            .ENDIF
+;        .ENDIF
+;        Invoke SetWindowRgn, hWin, hWinRgn, FALSE
+;;        Invoke InvalidateRect, hWin, NULL, FALSE
 
         inc nTotalLinkUrls
         Invoke SetWindowLong, hWin, DTEL_LINKURLSTOTAL, nTotalLinkUrls ; total link urls
@@ -4688,19 +4775,92 @@ DrawTextEXTLinkAddUrl ENDP
 ;------------------------------------------------------------------------------
 DrawTextEXTLinkReset PROC USES EBX hWin:DWORD
     LOCAL hWinRgn:DWORD
+    
+    ;PrintText 'DrawTextEXTLinkReset'
+    
     .IF hWin == 0
         mov eax, FALSE
         ret
     .ENDIF
 
+    Invoke SetWindowLong, hWin, DTEL_ENABLEDSTATE, FALSE ; EnabledState 
     Invoke SetWindowLong, hWin, DTEL_LINKURLSTOTAL, 0 ; total link urls
+    ;Invoke SetWindowRgn, hWin, NULL, FALSE
     Invoke CreateRectRgn, 0, 0, 0, 0
     mov hWinRgn, eax
-    Invoke SetWindowRgn, hWin, hWinRgn, FALSE    
     
+    Invoke SetWindowRgn, hWin, hWinRgn, FALSE    
+    ;Invoke InvalidateRect, hWin, NULL, FALSE
     mov eax, TRUE
     ret
 DrawTextEXTLinkReset ENDP
+
+
+;------------------------------------------------------------------------------
+; DrawTextEXTLinkReady - Called to set all regions once all link urls have been
+; added and everything is ready to show. 
+;
+; Returns in eax TRUE if success or FALSE if error
+;------------------------------------------------------------------------------
+DrawTextEXTLinkReady PROC USES EBX hWin:DWORD
+    LOCAL ptrLinkUrlArray:DWORD
+    LOCAL ptrLinkUrlEntry:DWORD
+    LOCAL nTotalLinkUrls:DWORD
+    LOCAL nCurrentLinkUrl:DWORD
+    LOCAL rect:RECT
+    LOCAL hWinRgn:DWORD
+    LOCAL hRgn:DWORD
+    
+    ;PrintText 'DrawTextEXTLinkReady'
+    ;Invoke SetWindowLong, hWin, DTEL_ENABLEDSTATE, TRUE ; EnabledState 
+    ;ret
+    
+    .IF hWin == 0
+        mov eax, FALSE
+        ret
+    .ENDIF
+
+    Invoke GetWindowLong, hWin, DTEL_LINKURLSTOTAL ; total link urls
+    .IF eax == 0
+        mov eax, FALSE
+        ret
+    .ENDIF
+    mov nTotalLinkUrls, eax
+    
+    Invoke GetWindowLong, hWin, DTEL_LINKURLSARRAY ; pointer to link url arrays
+    .IF eax == 0
+        mov eax, FALSE
+        ret
+    .ENDIF
+    mov ptrLinkUrlArray, eax
+    mov ptrLinkUrlEntry, eax    
+
+    Invoke CreateRectRgn, 0, 0, 0, 0
+    mov hWinRgn, eax    
+    
+    mov nCurrentLinkUrl, 0
+    mov eax, 0
+    .WHILE eax < nTotalLinkUrls
+        mov ebx, ptrLinkUrlEntry
+        lea eax, [ebx].LINKURL.rcLinkUrl
+        Invoke CopyRect, Addr rect, eax
+    
+        Invoke CreateRectRgn, rect.left, rect.top, rect.right, rect.bottom
+        mov hRgn, eax
+        Invoke CombineRgn, hWinRgn, hWinRgn, hRgn, RGN_OR
+    
+        add ptrLinkUrlEntry, SIZEOF LINKURL
+        inc nCurrentLinkUrl
+        mov eax, nCurrentLinkUrl
+    .ENDW    
+
+    Invoke SetWindowRgn, hWin, hWinRgn, FALSE
+    ;Invoke InvalidateRect, hWin, NULL, FALSE
+    Invoke SetWindowLong, hWin, DTEL_ENABLEDSTATE, TRUE ; EnabledState 
+    
+    mov eax, TRUE
+    ret
+DrawTextEXTLinkReady ENDP
 
 
 ;------------------------------------------------------------------------------

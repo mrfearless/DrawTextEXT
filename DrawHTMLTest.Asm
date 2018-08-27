@@ -98,7 +98,19 @@ WndProc proc hWin:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
             
         .ELSEIF eax == IDM_HELP_ABOUT
             Invoke ShellAbout,hWin,addr AppName,addr AboutMsg,NULL
-            
+        
+        .ELSEIF eax == IDC_LINK_MSGBOX
+            Invoke MessageBox, hWin, Addr szLinkMsgBoxMsg, Addr AppName, MB_OK
+        
+        .ELSE
+            mov eax, lParam
+            .IF eax == hHyperlink
+                mov eax, wParam
+                shr eax, 16d
+                ; we have resource id
+                PrintText 'Hyperlink clicked with res id'
+                PrintDec eax
+            .ENDIF
         .ENDIF
 
     .ELSEIF eax == WM_CLOSE
@@ -139,7 +151,8 @@ DoPaint PROC hWin:DWORD
     
     Invoke SelectObject, hdc, hFontSegioUI
     mov hFontOld, eax
-    Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK
+    Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK, 0;Addr hHyperlink
+    ;Invoke DrawBBCODE, hdc, Addr szBBCodeText, -1, Addr rect, DT_WORDBREAK
     Invoke SelectObject, hdc, hFontOld
 
     Invoke EndPaint, hWin, Addr ps

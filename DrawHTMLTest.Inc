@@ -33,6 +33,7 @@ ICO_MAIN                EQU 100
 
 ; Main Dialog
 IDD_DIALOG				EQU 1000
+IDC_LINK_MSGBOX         EQU 1001
 
 ; Main Menu 
 IDM_MENU				EQU 10000
@@ -49,6 +50,7 @@ ClassName				DB 'DLGCLASS',0
 AppName					DB 'DrawHTMLCODE Test',0
 AboutMsg				DB 'www.LetTheLight.in',13,10,'Copyright © fearless 2018',0
 
+szLinkMsgBoxMsg         DB 'You clicked on the hyperlink that had an internal resource id',0
 szFontSegioUI           DB "Segio UI",0
 
 
@@ -68,6 +70,7 @@ szText                  DB "<p>Beauty, success, truth ..."
                         DB "<quote>Man is still the most extraordinary computer of all.</quote>"
                         DB "<br> - John F. Kennedy"
                         DB "<hr>"
+                        DB "<br>Click on this <a href='#1001'>link</a> to show a message box"
                         DB "<ul>"
                         DB "<li><b>List 1 - First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
                         DB "<li><em>List 1 - Second Item</em></li>"
@@ -84,7 +87,7 @@ szText                  DB "<p>Beauty, success, truth ..."
                         DB "<li><em>List 3 - Lvl 2 - Second Item</em></li>"
                         DB "</ul>"
                         DB "<li><u>List 3 - Third Item</u></li>"
-                        DB "</ul>"                        
+                        DB "</ul>" 
                         DB 0,0,0,0
 
 
@@ -110,6 +113,8 @@ dwRGBQuoteTextColor     DD 05C5C5Ch
 dwRGBQuoteBackColor     DD 0D1D1D1h
 
 dwRGBHorzRuleColor      DD 0C8C8C8h
+
+hHyperlink              DD 0
 
 .DATA?
 ;-----------------------------------------------------------------------------------------

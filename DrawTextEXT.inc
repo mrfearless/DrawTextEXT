@@ -11,7 +11,7 @@
 ;==============================================================================
 
 
-DrawHTMLCODE PROTO :DWORD, :DWORD, :DWORD, :DWORD, :DWORD ; hdc, lpString, nCount, lpRect, uFormat
+DrawHTMLCODE PROTO :DWORD, :DWORD, :DWORD, :DWORD, :DWORD, :DWORD ; hdc, lpString, nCount, lpRect, uFormat, lpLink
 
 ;==============================================================================
 ; DrawHTMLCODE supports the following html tags, enclosed in angle brackets 

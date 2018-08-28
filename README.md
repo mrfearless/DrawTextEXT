@@ -3,7 +3,7 @@ Extended DrawText function with html and bbcode support
 
 Adapted from DrawHTML code posted by Ukkie9:  https://www.codeproject.com/Articles/7936/DrawHTML
 
-[![](./assets/Assembler-MASM 6.14.8444.png)](http://www.masm32.com/download.htm)[![](./assets/RadASM-v2.2.2.x.png)](http://www.softpedia.com/get/Programming/File-Editors/RadASM.shtml)![](./assets/Win32_API-GDI.png)![](./assets/Architecture-x86.png)[![](./assets/Buy_Me-A_Coffee.png)](https://www.buymeacoffee.com/mrfearless)
+[![](./assets/Assembler-MASM_6.14.8444.png)](http://www.masm32.com/download.htm) [![](./assets/RadASM-v2.2.2.x.png)](http://www.softpedia.com/get/Programming/File-Editors/RadASM.shtml)![](./assets/Win32_API-GDI.png) ![](./assets/Architecture-x86.png) [![](./assets/Buy_Me-A_Coffee.png)](https://www.buymeacoffee.com/mrfearless)
 
 ## Setup DrawTextEXT
 

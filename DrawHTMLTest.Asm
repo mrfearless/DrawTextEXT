@@ -76,19 +76,22 @@ WinMain endp
 ;-------------------------------------------------------------------------------------
 ; WndProc - Main Window Message Loop
 ;-------------------------------------------------------------------------------------
-WndProc proc hWin:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
+WndProc proc USES EBX ECX hWin:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
     
     mov eax, uMsg
     .IF eax == WM_INITDIALOG
         push hWin
         pop hWnd
-
+        
+        Invoke GetDlgItem, hWin, IDC_STATUSBAR
+        mov hStatusBar, eax
+        
         Invoke CreateFont, -16, 0,0,0,FW_NORMAL, FALSE, FALSE, FALSE, 0,0,0,0,0, Addr szFontSegioUI
         mov hFontSegioUI, eax
         Invoke CreateSolidBrush, dwRGBCodeBackColor
         mov CodeBackBrush, eax
         Invoke CreateSolidBrush, dwRGBQuoteBackColor
-        mov QuoteBackBrush, eax     
+        mov QuoteBackBrush, eax
 
     .ELSEIF eax == WM_COMMAND
         mov eax, wParam
@@ -114,8 +117,29 @@ WndProc proc hWin:HWND,uMsg:UINT,wParam:WPARAM,lParam:LPARAM
                 ENDIF
             .ENDIF
         .ENDIF
-
+    
+    .ELSEIF eax == WM_NOTIFY
+        mov ecx, lParam
+        mov ebx, (NM_DTEL ptr [ecx]).hdr.hwndFrom
+        mov eax, (NM_DTEL ptr [ecx]).hdr.code
+        .IF ebx == hHyperlink
+            .IF eax == DTELN_MOUSEOVER
+                lea eax, (NM_DTEL ptr [ecx]).item.szLinkUrl
+                .IF eax != 0
+                    Invoke SetWindowText, hStatusBar, eax
+                .ENDIF
+                
+            .ELSEIF eax == DTELN_MOUSELEAVE    
+                .IF eax != 0
+                    Invoke SetWindowText, hStatusBar, Addr szClearStatusBar
+                .ENDIF
+            
+            .ENDIF
+            
+        .ENDIF
+    
     .ELSEIF eax == WM_SIZE
+        Invoke SendMessage, hStatusBar, WM_SIZE, 0, 0
         Invoke InvalidateRect, hWin, NULL, TRUE
     
     .ELSEIF eax == WM_CLOSE
@@ -156,8 +180,8 @@ DoPaint PROC hWin:DWORD
     
     Invoke SelectObject, hdc, hFontSegioUI
     mov hFontOld, eax
-    Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK, Addr hHyperlink
-    ;Invoke DrawBBCODE, hdc, Addr szBBCodeText, -1, Addr rect, DT_WORDBREAK
+    ;Invoke DrawHTMLCODE, hdc, Addr szText, -1, Addr rect, DT_WORDBREAK, Addr hHyperlink
+    Invoke DrawBBCODE, hdc, Addr szBBCodeText, -1, Addr rect, DT_WORDBREAK, Addr hHyperlink
     Invoke SelectObject, hdc, hFontOld
 
     Invoke EndPaint, hWin, Addr ps

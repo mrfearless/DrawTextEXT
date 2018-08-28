@@ -138,6 +138,7 @@ _HTMLCODE_FONT          PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                
 _HTMLCODE_HR            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, dwLeft, dwTop, dwHeight, dwMaxWidth, dwLineHeight
 _HTMLCODE_LIST          PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, hFont, lpListStack, lpListLevel, dwTag 
 _HTMLCODE_LISTITEM      PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
+_HTMLCODE_LinkUrlTitle  PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; lpszHrefString, dwHrefStringLength, lpszUrl, lpszTitle
 
 
 ; DrawBBCODE Functions:
@@ -147,6 +148,8 @@ _BBCODE_QUOTE           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  
 _BBCODE_COLOR           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, dwTag, lpszStart, lpColorStack, lpdwColorStackTop
 _BBCODE_LIST            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hdc, hFont, lpListStack, lpListLevel, dwTag 
 _BBCODE_LISTITEM        PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD         ; hdc, hFont, lpListStack, lpListLevel, lpRect, dwNewFormat
+_BBCODE_URL             PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD,:DWORD  ; hdc, hFont, lplpszStart, lpNewCount, lpdwTokenLength, lpRect, dwXPos, lpHyperlink
+_BBCODE_LinkUrlTitle    PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; lpszHrefString, dwHrefStringLength, lpszUrl, lpszTitle
 
 
 ; Utility Functions:
@@ -161,7 +164,6 @@ ListStackPop            PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                
 ListStackPeek           PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; lpdwListType, lpdwItemIndent, lpdwBulletIndent, lpStack, dwStackTop
 ListStackSetCounter     PROTO :DWORD,:DWORD,:DWORD                              ; dwValue, lpStack, dwStackTop
 szCatStrToWide          PROTO :DWORD,:DWORD                                     ; lpszWideDest, lpszSource
-szLinkUrlTitle          PROTO :DWORD,:DWORD,:DWORD,:DWORD                       ; lpszHrefString, dwHrefStringLength, lpszUrl, lpszTitle
 
 
 DrawTextEXTLinkCreate   PROTO :DWORD,:DWORD,:DWORD,:DWORD,:DWORD                ; hWndParent, dwXpos, dwYpos, dwWidth, dwHeight
@@ -171,7 +173,8 @@ DrawTextEXTLinkAddUrl   PROTO :DWORD,:DWORD,:DWORD,:DWORD                       
 DrawTextEXTLinkReset    PROTO :DWORD                                            ; hWin
 DrawTextEXTLinkClick    PROTO :DWORD                                            ; hWin
 DrawTextEXTLinkReady    PROTO :DWORD                                            ; hWin
-
+DrawTextEXTLinkItem     PROTO :DWORD                                            ; hWin
+DrawTextEXTLinkNotify   PROTO :DWORD,:DWORD                                     ; hWin, dwNotifyCode
 
 .CONST
 ;------------------------------------------------------------------------------
@@ -186,7 +189,7 @@ HR_INDENT               EQU 0   ; horizontal rule ident from left and right
 LISTSTACK_SIZE          EQU 6   ; Max list stack level = max nested depth of lists
 COLORSTACK_SIZE         EQU 32  ; Max color stack level
 LINKURL_SIZE            EQU 16  ; Max link urls in array 
-LINKURL_MAXLENGTH       EQU 256 ; length of url text
+
 
 
 ;---------------------------------------
@@ -228,17 +231,19 @@ tLISTITEM               EQU 18
 tHR                     EQU 19
 tALINK                  EQU 20
 tTAB                    EQU 21
+tCMNT                   EQU 22
 
 ;---------------------------------------
 ; GetTagContents dwType:
 ;---------------------------------------
 GETTAG_PRE              EQU 0   ; To fetch <pre> to </pre> tag contents
-GETTAG_CODE             EQU 1   ; To fetch <code> to </code> tag contents
-GETTAG_Q                EQU 2   ; To fetch <q> to </q> tag contents
-GETTAG_QUOTE            EQU 3   ; To fetch <quote> to </quote> tag contents
+GETTAG_CODE             EQU 1   ; To fetch <code> to </code> or [code] to [/code] tag contents
+GETTAG_Q                EQU 2   ; To fetch <q> to </q> or [q] to [/q] tag contents
+GETTAG_QUOTE            EQU 3   ; To fetch <quote> to </quote> or [quote] to [/quote] tag contents
 GETTAG_BLOCKQ           EQU 4   ; To fetch <blockq> to </blockq> tag contents
 GETTAG_ALINK            EQU 5   ; To fetch <a to </a> tag contents
-GETTAG_MAX              EQU GETTAG_ALINK
+GETTAG_URL              EQU 6   ; To fetch [url] to [/url] tag contents
+GETTAG_MAX              EQU GETTAG_URL
 
 ;---------------------------------------
 ; GetTagContents dwTagBracket:
@@ -264,11 +269,27 @@ FV_NUMBER               EQU (FV_ALINK shl 1)
 ; Structures
 ;------------------------------------------------------------------------------
 
+;---------------------------------------
+; Stores url link information
+;---------------------------------------
+IFNDEF LINKURL
 LINKURL                 STRUCT
     rcLinkUrl           RECT <0,0,0,0>
     szLinkUrl           DB LINKURL_MAXLENGTH DUP (0)
     szLinkTitle         DB LINKURL_MAXLENGTH DUP (0)
 LINKURL                 ENDS
+ENDIF
+
+;---------------------------------------
+; Notification for DrawTextEXTLink
+;---------------------------------------
+IFNDEF NM_DTEL
+NM_DTEL                 STRUCT
+    hdr                 NMHDR <>
+    item                LINKURL <>
+NM_DTEL                 ENDS
+ENDIF
+
 
 ;---------------------------------------
 ; For list items using the list stack
@@ -313,7 +334,7 @@ HTMLCODE_TAGS           TAG <<0>,       tNONE,      0,  0>  ; -
                         TAG <"br",      tBR,        0,  1>  ; Line Break
                         TAG <"em",      tI,         0,  0>  ; Italic
                         TAG <"font",    tFONT,      1,  0>  ; Font color='#FEDCBA'
-                        TAG <"t",       tI,         0,  0>  ; Italic
+                        TAG <"i",       tI,         0,  0>  ; Italic
                         TAG <"p",       tP,         0,  1>  ; Paragraph
                         TAG <"strong",  tB,         0,  0>  ; Bold
                         TAG <"sub",     tSUB,       0,  0>  ; Subscript
@@ -325,12 +346,13 @@ HTMLCODE_TAGS           TAG <<0>,       tNONE,      0,  0>  ; -
                         TAG <"q",       tQUOTE1,    0,  1>  ; Quote
                         TAG <"quote",   tQUOTE2,    0,  1>  ; Quote
                         TAG <"blockq",  tQUOTE3,    0,  1>  ; Quote
-                        TAG <"ul",      tLIST,      0,  0>  ; Unordered list with bullets
-                        TAG <"ol",      tLISTO,     0,  0>  ; Ordered list with numbers
-                        TAG <"li",      tLISTITEM,  0,  0>  ; List item
+                        TAG <"ul",      tLIST,      0,  1>  ; Unordered list with bullets
+                        TAG <"ol",      tLISTO,     0,  1>  ; Ordered list with numbers
+                        TAG <"li",      tLISTITEM,  0,  1>  ; List item
                         TAG <"hr",      tHR,        0,  1>  ; Horizontal line
-                        TAG <"a",       tALINK,     1,  0>  ; Anchor url link
-HTMLCODE_TAGCOUNT       EQU 22
+                        TAG <"a",       tALINK,     1,  0>  ; Url link
+                        TAG <"!",       tCMNT,      1,  0>  ; cnmt 
+HTMLCODE_TAGCOUNT       EQU 23
 HTMLCODE_TAGINFO        TAGINFO <Offset HTMLCODE_TAGS, HTMLCODE_TAGCOUNT, "<", ">">
 
 ;------------------------------------------------------------------------------
@@ -344,12 +366,14 @@ BBCODE_TAGS             TAG <<0>,       tNONE,      0,  0>  ; -
                         TAG <"code",    tCODE,      0,  1>  ; Preformatted code
                         TAG <"q",       tQUOTE1,    0,  1>  ; Quote
                         TAG <"quote",   tQUOTE2,    0,  1>  ; Quote
-                        TAG <"ul",      tLIST,      0,  0>  ; Unordered list with bullets
-                        TAG <"list",    tLIST,      0,  0>  ; Unordered list with bullets
-                        TAG <"ol",      tLISTO,     0,  0>  ; Ordered list with numbers
-                        TAG <"li",      tLISTITEM,  0,  0>  ; List item
-                        TAG <"*",       tLISTITEM,  0,  0>  ; List item
-BBCODE_TAGCOUNT         EQU 13
+                        TAG <"ul",      tLIST,      0,  1>  ; Unordered list with bullets
+                        TAG <"list",    tLIST,      0,  1>  ; Unordered list with bullets
+                        TAG <"ol",      tLISTO,     0,  1>  ; Ordered list with numbers
+                        TAG <"li",      tLISTITEM,  0,  1>  ; List item
+                        TAG <"*",       tLISTITEM,  0,  1>  ; List item
+                        TAG <"url",     tALINK,     1,  0>  ; Url link
+                        TAG <"comment", tCMNT,      1,  0>  ; cnmt 
+BBCODE_TAGCOUNT         EQU 15
 BBCODE_TAGINFO          TAGINFO <Offset BBCODE_TAGS, BBCODE_TAGCOUNT, "[", "]">
 ;------------------------------------------------------------------------------
 
@@ -370,10 +394,12 @@ szQuoteTag2             DB "quote",0        ; Used for getting content between q
 szQuoteTag3             DB "blockq",0       ; Used for getting content between blockq tags
 szAlinkTag              DB "a",0            ; Used for getting content between a tags
 szHRefTag               DB "href=",0        ; href="url">
+szUrlTag                DB "url",0          ; url
 szDrawTextEXTLinkClass  DB "DTELink",0      ; class for hyperlink window
 szDTELinkOpen           DB "open",0         ; Open in new tab in existing browser
 szDTELinkNew            DB "new",0          ; New browser
 DTELinkID               DD 65535            ; Resource ID for hyperlink, dec on each control
+DTELNM                  NM_DTEL <>          ; Notification data passed via WM_NOTIFY
 
 ;---------------------------------------
 ; Unicode Symbol Strings:
@@ -391,6 +417,22 @@ szTriangleBulletSymbolW DB 23h,20h,0h,0h    ; . Triangle bullet
 
 
 ALIGN 16
+
+
+;==============================================================================
+; DrawTextEXT
+;==============================================================================
+DrawTextEXT PROC hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect:DWORD, uFormat:DWORD, lpHyperlink:DWORD, dwCodeType:DWORD
+    mov eax, dwCodeType
+    .IF eax == 0
+        Invoke DrawHTMLCODE, hdc, lpString, nCount, lpRect, uFormat, lpHyperlink
+    .ELSE
+        Invoke DrawBBCODE, hdc, lpString, nCount, lpRect, uFormat, lpHyperlink
+    .ENDIF
+    ret
+DrawTextEXT ENDP
+
+
 
 ;==============================================================================
 ; DrawHTMLCODE Functions
@@ -781,7 +823,8 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
                 .IF eax != DT_SINGLELINE
                     .IF ListLevel < 2
                         mov eax, nLineHeight
-                        add eax, 2d
+                        shr eax, 1
+                        add eax, 2
                         add nHeight, eax
                     .ENDIF
                     mov XPos, 0
@@ -832,11 +875,16 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
                 and eax, DT_SINGLELINE
                 .IF eax != DT_SINGLELINE
                     mov eax, nLineHeight
-                    add eax, 2
+                    sub eax, 2
                     add nHeight, eax
                     mov XPos, 0
+                    Invoke _HTMLCODE_HR, hdc, nLeft, nTop, nHeight, nMaxWidth, nLineHeight
+                    mov eax, nLineHeight
+                    sub eax, 2
+                    add nHeight, eax
+                    mov XPos, 0                    
                 .ENDIF                
-                Invoke _HTMLCODE_HR, hdc, nLeft, nTop, nHeight, nMaxWidth, nLineHeight
+                ;Invoke _HTMLCODE_HR, hdc, nLeft, nTop, nHeight, nMaxWidth, nLineHeight
             .ENDIF            
 
         ;------------------------------------------------------------------
@@ -918,6 +966,8 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
         .ELSEIF eax == tFONT
             Invoke _HTMLCODE_FONT, hdc, Tag, lpszStart, Addr ColorStack, Addr ColorStackTop
 
+        .ELSEIF eax == tCMNT
+
         ;------------------------------------------------------------------
         .ELSE ; Default
 
@@ -996,6 +1046,7 @@ DrawHTMLCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRe
                         .ELSE
                             ; word wrap
                             mov eax, nLineHeight
+                            ;add eax, 2d
                             add nHeight, eax
                             mov XPos, 0
                         .ENDIF
@@ -1764,8 +1815,9 @@ _HTMLCODE_ALINK PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCo
         
         Invoke RtlZeroMemory, Addr szLinkUrl, SIZEOF szLinkUrl
         Invoke RtlZeroMemory, Addr szLinkTitle, SIZEOF szLinkTitle
-
-        Invoke szLinkUrlTitle, lpTagContentText, nTagContentLength, Addr szLinkUrl, Addr szLinkTitle
+        
+        ; split into url and title text
+        Invoke _HTMLCODE_LinkUrlTitle, lpTagContentText, nTagContentLength, Addr szLinkUrl, Addr szLinkTitle
         .IF eax == TRUE
 
             Invoke szLen, Addr szLinkTitle
@@ -2068,7 +2120,7 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
     and eax, DT_SINGLELINE
     .IF eax != DT_SINGLELINE
 
-        Invoke GetFontVariant, hdc, hFont, FV_BOLD or FV_ITALIC
+        Invoke GetFontVariant, hdc, hFont, FV_BOLD or FV_ITALIC or FV_UNDERLINE
         Invoke SelectObject, hdc, eax            
         ;Invoke SelectObject, hdc, hfontBase
         Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
@@ -2099,7 +2151,11 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
         mov rect.left, eax
         mov eax, nTop
         add eax, nLineHeight
-        add eax, 3d
+        ;.IF dwListType == 0
+            add eax, 2d
+        ;.ELSE
+        ;    add eax, 2d
+        ;.ENDIF
         add eax, nHeight
         mov rect.top, eax
         mov eax, nLeft
@@ -2111,9 +2167,10 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
         add eax, nLineHeight
         mov rect.bottom, eax                    
         
+        Invoke GetFontVariant, hdc, hFont, FV_BOLD
+        Invoke SelectObject, hdc, eax
+        
         .IF dwListType == 0 ; Unorderded list, so draw bullet
-            Invoke GetFontVariant, hdc, hFont, FV_BOLD
-            Invoke SelectObject, hdc, eax
             mov eax, dwListLevel
             .IF eax == 1 || eax == 4 || eax == 7 || eax >= 10
                 Invoke DrawTextW, hdc, Addr szBulletSymbolW, 1, Addr rect, DT_LEFT
@@ -2123,8 +2180,6 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
                 Invoke DrawTextW, hdc, Addr szWhiteBulletSymbolW, 1, Addr rect, DT_LEFT
             .ENDIF
         .ELSE ; draw number
-            Invoke GetFontVariant, hdc, hFont, FV_NORMAL
-            Invoke SelectObject, hdc, eax
             Invoke dwtoa, dwListType, Addr szListItemNo
             Invoke szCatStr, Addr szListItemNo, Addr szFullstop
             Invoke szLen, Addr szListItemNo
@@ -2149,11 +2204,14 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
             inc dwListType
             Invoke ListStackSetCounter, dwListType, lpListStack, dwListLevel
         .ENDIF
+        Invoke SelectObject, hdc, hFont
+        
         mov eax, nLineHeight
         add eax, 2d
+        add eax, nHeight
         mov ebx, lpdwHeight
-        add [ebx], eax ; add nHeight, eax
-         mov eax, dwListIndent
+        mov [ebx], eax ; add nHeight, eax
+        mov eax, dwListIndent
     .ELSE
         xor eax, eax
     .ENDIF
@@ -2161,6 +2219,84 @@ _HTMLCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwLi
 _HTMLCODE_LISTITEM ENDP
 
 
+;------------------------------------------------------------------------------
+; _HTMLCODE_LinkUrlTitle - Seperate the [href="url">title] string to a url and title
+;
+; Returns in eax TRUE if success or FALSE if error
+;------------------------------------------------------------------------------
+_HTMLCODE_LinkUrlTitle PROC USES EBX ECX EDI ESI lpszHrefString:DWORD, dwHrefStringLength:DWORD, lpszUrl:DWORD, lpszTitle:DWORD
+
+    .IF dwHrefStringLength == 0 || lpszHrefString == NULL
+        mov eax, FALSE
+        ret
+    .ENDIF
+    
+    mov esi, lpszHrefString
+    movzx eax, byte ptr [esi]
+    mov ebx, 0
+    .WHILE ebx < dwHrefStringLength && al != 0
+        
+        .IF al == 22h || al == 27h ; " or '
+            mov edi, lpszUrl
+            mov ecx, lpszTitle ; store in title as well, just in case title is empty
+            inc ebx
+            inc esi
+            movzx eax, byte ptr [esi]
+            .WHILE ebx < dwHrefStringLength && al != 0 && al != 22h && al != 27h
+                mov byte ptr [edi], al
+                mov byte ptr [ecx], al
+                inc edi
+                inc ecx
+                inc ebx
+                inc esi
+                movzx eax, byte ptr [esi]
+            .ENDW
+            .IF al == 0
+                ; we hit end of string instead of another quote mark, so fail
+                mov edi, lpszUrl
+                mov byte ptr [edi], 0
+                mov edi, lpszTitle
+                mov byte ptr [edi], 0
+                mov eax, FALSE
+                ret
+            .ELSE
+                mov byte ptr [edi], 0
+                mov byte ptr [ecx], 0                
+            .ENDIF
+
+            ; continue on to get title
+            inc ebx
+            inc esi
+            movzx eax, byte ptr [esi]
+            .IF al == '>' || al == ']'
+                inc ebx
+                inc esi
+                movzx eax, byte ptr [esi]
+            .ENDIF
+
+            mov edi, lpszTitle
+            movzx eax, byte ptr [esi]
+            .WHILE ebx < dwHrefStringLength && al != 0
+                mov byte ptr [edi], al
+                mov byte ptr [edi+1], 0
+                inc edi
+                inc ebx
+                inc esi
+                movzx eax, byte ptr [esi]
+            .ENDW
+            ;mov byte ptr [edi], 0
+            mov eax, TRUE
+            ret
+        .ENDIF
+        
+        inc ebx
+        inc esi
+        movzx eax, byte ptr [esi]
+    .ENDW
+    
+    mov eax, FALSE
+    ret
+_HTMLCODE_LinkUrlTitle ENDP
 
 
 
@@ -2178,11 +2314,12 @@ _HTMLCODE_LISTITEM ENDP
 ;
 ; Returns in eax height of text drawn similar to DrawText
 ;------------------------------------------------------------------------------
-DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect:DWORD, uFormat:DWORD
+DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect:DWORD, uFormat:DWORD, lpHyperlink:DWORD
     LOCAL lpszStart:DWORD
     LOCAL nLeft:DWORD
     LOCAL nTop:DWORD
     LOCAL nRight:DWORD
+    LOCAL nBottom:DWORD
     LOCAL nMaxWidth:DWORD
     LOCAL nMinWidth:DWORD
     LOCAL nHeight:DWORD
@@ -2198,8 +2335,6 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     LOCAL nWidthOfSpace:DWORD
     LOCAL XPos:DWORD
     LOCAL bWhiteSpace:DWORD
-    LOCAL rect:RECT
-    LOCAL nSize:POINT
     LOCAL NewFormat:DWORD
     LOCAL NewCount:DWORD
     LOCAL SavedStyle:DWORD
@@ -2210,6 +2345,10 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     LOCAL dwListIndent:DWORD
     LOCAL dwListItemMode:DWORD
     LOCAL dwBulletIndent:DWORD
+    LOCAL hDTELink:DWORD
+    LOCAL hDTELinkParent:DWORD
+    LOCAL rect:RECT
+    LOCAL nSize:POINT    
     LOCAL hfontSpecial[FV_NUMBER]:DWORD
     LOCAL ColorStack[COLORSTACK_SIZE]:COLORREF
     LOCAL ListStack[LISTSTACK_SIZE]:LISTINFO  
@@ -2238,6 +2377,8 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
         mov eax, nRight
         sub eax, nLeft
         mov nMaxWidth, eax
+        mov eax, rect.bottom
+        mov nBottom, eax        
     .ELSE
         Invoke GetCurrentPositionEx, hdc, Addr nSize
         mov eax, nSize.x
@@ -2298,6 +2439,58 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
     Invoke RtlZeroMemory, Addr ColorStack, SIZEOF ColorStack
     Invoke RtlZeroMemory, Addr ListStack, SIZEOF ListStack
 
+    Invoke WindowFromDC, hdc
+    mov hDTELinkParent, eax
+    .IF lpHyperlink != NULL
+        mov ebx, lpHyperlink
+        mov eax, [ebx]
+        mov hDTELink, eax
+    .ENDIF
+    Invoke IsWindow, hDTELink
+    .IF hDTELink != NULL && eax != FALSE ; Already exists, make sure its sized to fit our area
+        IFDEF DEBUG32
+            PrintText 'HYPERLINKS ALREADY EXISTS OK'
+        ENDIF         
+        ;PrintText 'Already Exists'
+        ;Invoke SetWindowLong, hDTELink, DTEL_ENABLEDSTATE, FALSE ; disable while we add links
+        mov eax, nRight
+        add eax, nLeft
+        add eax, nLeft
+        mov ebx, nBottom
+        add ebx, nTop
+        add ebx, nTop
+        ;Invoke SetWindowPos, hDTELink, NULL, 0, 0, eax, ebx, SWP_NOZORDER or SWP_NOSENDCHANGING or SWP_NOACTIVATE
+        Invoke DrawTextEXTLinkReset, hDTELink
+    .ELSE ; create hyperlink window
+        mov eax, nRight
+        add eax, nLeft
+        add eax, nLeft
+        mov ebx, nBottom
+        add ebx, nTop
+        add ebx, nTop
+        .IF lpHyperlink != NULL
+            Invoke DrawTextEXTLinkCreate, hDTELinkParent, 0, 0, eax, ebx
+            .IF eax != NULL
+                mov hDTELink, eax
+                mov ebx, lpHyperlink
+                mov [ebx], eax
+                IFDEF DEBUG32
+                    PrintText 'HYPERLINKS OK'
+                ENDIF                   
+            .ELSE
+                mov hDTELink, 0
+                IFDEF DEBUG32
+                    PrintText 'FAILED TO CREATE HYPERLINK - NO LINK URLS'
+                ENDIF                
+            .ENDIF
+        .ELSE
+            mov hDTELink, 0
+            IFDEF DEBUG32
+                PrintText 'HYPERLINK IS NOT SET - NO LINK URLS'
+            ENDIF
+        .ENDIF
+    .ENDIF
+
     mov eax, lpString
     mov lpszStart, eax
 
@@ -2318,7 +2511,9 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
         ;------------------------------------------------------------------
         .IF eax == tBR ; CRLF, (13,10), (0Dh,0Ah), LF, 13, 0Dh
             ;PrintText 'tBR'
-            .IF TagPrevious != (tCODE or ENDFLAG)
+            mov eax, TagPrevious
+            .IF eax != (tCODE or ENDFLAG) ; [/code]
+            ;.ELSE
                 ;PrintDec nTokenLength
                 ;PrintDec bWhiteSpace
                 Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
@@ -2338,6 +2533,10 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                 ;PrintDec XPos
                 ;PrintDec nSize.x
                 ;mov bWhiteSpace, FALSE
+                ;.IF TagPrevious == (tLISTITEM) ; [li] or [*] and not [/li]
+                ;    mov dwListItemMode, 0 ; then line break ends listitem
+                ;.ENDIF
+             
             .ENDIF
         
         ;------------------------------------------------------------------
@@ -2349,7 +2548,7 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             add XPos, eax
         
         ;------------------------------------------------------------------
-        .ELSEIF eax == tCODE
+        .ELSEIF eax == tCODE ; [code] or [/code]
             ;PrintText 'tCODE'
             mov eax, Tag
             and eax, ENDFLAG        
@@ -2389,7 +2588,7 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             mov XPos, 0
             
         ;------------------------------------------------------------------
-        .ELSEIF eax == tQUOTE1 || eax == tQUOTE2
+        .ELSEIF eax == tQUOTE1 || eax == tQUOTE2 ; [q], [quote]
             ;PrintText 'tQUOTE'        
             mov eax, Tag
             and eax, ENDFLAG
@@ -2422,9 +2621,43 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                 Invoke SetBkColor, hdc, eax
             .ENDIF
             mov XPos, 0        
+        
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tALINK ; [url] or [/url]
+            mov eax, Tag
+            and eax, ENDFLAG
+            .IF eax == 0 ; 
+
+                mov eax, Styles
+                mov SavedStyle, eax
+                Invoke GetTextColor, hdc
+                mov SavedColor, eax
+                Invoke GetBkColor, hdc
+                mov SavedBkColor, eax
+
+                ; Store some params in rect structure
+                mov eax, nLeft
+                mov rect.left, eax
+                mov eax, nTop
+                mov rect.top, eax
+                mov eax, nHeight
+                mov rect.bottom, eax                
+                
+                Invoke _BBCODE_URL, hdc, hfontBase, Addr lpszStart, Addr NewCount, Addr nTokenLength, Addr rect, XPos, hDTELink
+                add XPos, eax
+
+            .ELSE ; </a>
+                mov eax, SavedStyle
+                mov Styles, eax
+                mov eax, SavedColor
+                Invoke SetTextColor, hdc, eax
+                mov eax, SavedBkColor
+                Invoke SetBkColor, hdc, eax
+                Invoke SelectObject, hdc, hfontBase
+            .ENDIF        
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tLIST || eax == tLISTO ; unordered list or orderded list
+        .ELSEIF eax == tLIST || eax == tLISTO ; <ul> or <ol> unordered list or orderded list
             ;PrintText 'tLIST'
             mov eax, Tag
             and eax, ENDFLAG
@@ -2454,11 +2687,11 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             .ENDIF
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tLISTITEM && ListLevel > 0
+        .ELSEIF eax == tLISTITEM && ListLevel > 0 ; [li] or [*]
             ;PrintText 'tLISTITEM'        
             mov eax, Tag
             and eax, ENDFLAG
-            .IF eax == 0 ; <li>
+            .IF eax == 0 ; [li]
                 
                 mov dwListItemMode, 1
                 
@@ -2475,13 +2708,13 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
                 Invoke _BBCODE_LISTITEM, hdc, hfontBase, Addr ListStack, ListLevel, Addr rect, NewFormat
                 mov XPos, eax
 
-            .ELSE ; </li>
+            .ELSE ; [/li]
                 mov dwListItemMode, 0
                 Invoke SelectObject, hdc, hfontBase
             .ENDIF
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tB
+        .ELSEIF eax == tB ; [b] or [/b]
             ;PrintText 'tB'
             mov eax, Tag
             and eax, ENDFLAG
@@ -2492,7 +2725,7 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             .ENDIF
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tI
+        .ELSEIF eax == tI ; [i] or [/i]
             ;PrintText 'tI'
             mov eax, Tag
             and eax, ENDFLAG
@@ -2503,7 +2736,7 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             .ENDIF
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tU
+        .ELSEIF eax == tU ; [u] or [/u]
             ;PrintText 'tU'
             mov eax, Tag
             and eax, ENDFLAG
@@ -2514,9 +2747,12 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
             .ENDIF
 
         ;------------------------------------------------------------------
-        .ELSEIF eax == tCOLOR
+        .ELSEIF eax == tCOLOR ; [color] or [/color]
             ;PrintText 'tCOLOR'
             Invoke _BBCODE_COLOR, hdc, Tag, lpszStart, Addr ColorStack, Addr ColorStackTop
+        
+        ;------------------------------------------------------------------
+        .ELSEIF eax == tCMNT
         
         ;------------------------------------------------------------------
         .ELSE ; default
@@ -2781,6 +3017,10 @@ DrawBBCODE PROC USES EBX ECX EDX hdc:DWORD, lpString:DWORD, nCount:DWORD, lpRect
         .ENDIF
         Invoke CopyRect, lpRect, Addr rect
     .ENDIF
+    Invoke IsWindow, hDTELink
+    .IF hDTELink != NULL && eax != FALSE
+        Invoke DrawTextEXTLinkReady, hDTELink
+    .ENDIF    
     mov eax, nHeight
     ret
 DrawBBCODE ENDP
@@ -3127,6 +3367,9 @@ _BBCODE_CODE PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCount
         mov lpTagContentText, eax
         Invoke szLen, lpTagContentText
         mov nTagContentLength, eax
+        
+        ;PrintStringByAddr lpTagContentText
+        
         Invoke GetFontVariant, hdc, hFont, FV_PRE
         Invoke SelectObject, hdc, eax
         Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
@@ -3361,7 +3604,7 @@ _BBCODE_COLOR PROC hdc:DWORD, dwTag:DWORD, lpszStart:DWORD, lpColorStack:DWORD, 
     mov eax, dwTag
     and eax, ENDFLAG
     .IF eax == 0 ; <color>
-        mov eax, lpszStart ; <color='#C00000'>
+        mov eax, lpszStart ; <color=#C00000>
         add eax, 7d
         mov lpColString, eax
         Invoke ParseColor, Addr lpColString
@@ -3464,7 +3707,7 @@ _BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwList
     and eax, DT_SINGLELINE
     .IF eax != DT_SINGLELINE
 
-        Invoke GetFontVariant, hdc, hFont, FV_BOLD or FV_ITALIC
+        Invoke GetFontVariant, hdc, hFont, FV_BOLD or FV_ITALIC or FV_UNDERLINE
         Invoke SelectObject, hdc, eax            
         ;Invoke SelectObject, hdc, hfontBase
         Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSize
@@ -3495,7 +3738,7 @@ _BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwList
         mov rect.left, eax
         mov eax, nTop
         add eax, nLineHeight
-        add eax, 3d
+        add eax, 2d
         add eax, nHeight
         mov rect.top, eax
         mov eax, nLeft
@@ -3507,9 +3750,10 @@ _BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwList
         add eax, nLineHeight
         mov rect.bottom, eax                    
         
+        Invoke GetFontVariant, hdc, hFont, FV_BOLD
+        Invoke SelectObject, hdc, eax        
+        
         .IF dwListType == 0 ; Unorderded list, so draw bullet
-            Invoke GetFontVariant, hdc, hFont, FV_BOLD
-            Invoke SelectObject, hdc, eax
             mov eax, dwListLevel
             .IF eax == 1 || eax == 4 || eax == 7 || eax >= 10
                 Invoke DrawTextW, hdc, Addr szBulletSymbolW, 1, Addr rect, DT_LEFT
@@ -3519,8 +3763,6 @@ _BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwList
                 Invoke DrawTextW, hdc, Addr szWhiteBulletSymbolW, 1, Addr rect, DT_LEFT
             .ENDIF
         .ELSE ; draw number
-            Invoke GetFontVariant, hdc, hFont, FV_NORMAL
-            Invoke SelectObject, hdc, eax
             Invoke dwtoa, dwListType, Addr szListItemNo
             Invoke szCatStr, Addr szListItemNo, Addr szFullstop
             Invoke szLen, Addr szListItemNo
@@ -3545,18 +3787,259 @@ _BBCODE_LISTITEM PROC USES EBX hdc:DWORD, hFont:DWORD, lpListStack:DWORD, dwList
             inc dwListType
             Invoke ListStackSetCounter, dwListType, lpListStack, dwListLevel
         .ENDIF
+        Invoke SelectObject, hdc, hFont
+        
         mov eax, nLineHeight
         add eax, 2d
+        add eax, nHeight
         mov ebx, lpdwHeight
-        add [ebx], eax ; add nHeight, eax
-         mov eax, dwListIndent
+        mov [ebx], eax ; add nHeight, eax
+        mov eax, dwListIndent
     .ELSE
         xor eax, eax
     .ENDIF
     ret
 _BBCODE_LISTITEM ENDP
 
+;------------------------------------------------------------------------------
+; _BBCODE_URL - Hyperlink Tag
+;
+; Adds a link url (url, title and region rect) to the DrawTextEXTLink control
+; 
+; lpRect is a pointer to a rect, used to pass a few parameters: 
+; nLeft, nTop, nHeight
 
+; Returns in eax width of url title text drawn. nNewCount (lpNewCount parameter)
+; is updated for characters left in lpszStart. lpszStart (lplpszStart parameter)
+; is updated to point to next token, usually: [/url]. 
+; nTokenLength (lpdwTokenLength) is updated to reflect change of drawing url
+; title text instead of using tokenlength for [url=www.site.com]
+;
+;------------------------------------------------------------------------------
+_BBCODE_URL PROC USES EBX hdc:DWORD, hFont:DWORD, lplpszStart:DWORD, lpNewCount:DWORD, lpdwTokenLength:DWORD, lpRect:DWORD, dwXPos:DWORD, hDTELink:DWORD
+    LOCAL lpTagContentText:DWORD
+    LOCAL nTagContentLength:DWORD
+    LOCAL nTokenLength:DWORD
+    LOCAL nLeft:DWORD
+    LOCAL nTop:DWORD
+    LOCAL nHeight:DWORD
+    LOCAL nLenLinkTitle:DWORD
+    LOCAL hWndDC:DWORD
+    LOCAL nNewCount:DWORD
+    LOCAL rect:RECT
+    LOCAL nSize:POINT
+    LOCAL nSizeSpace:POINT
+    LOCAL pt:POINT
+    LOCAL szLinkUrl[256]:BYTE
+    LOCAL szLinkTitle[256]:BYTE
+    
+    mov ebx, lpdwTokenLength
+    mov eax, [ebx]
+    mov nTokenLength, eax
+
+    mov ebx, lpNewCount
+    mov eax, [ebx]
+    mov nNewCount, eax
+
+    Invoke GetTagContents, lplpszStart, lpNewCount, nTokenLength, GETTAG_URL, GETTAG_BRACKET_SQUARE
+    .IF eax != NULL                
+        mov lpTagContentText, eax
+        Invoke szLen, lpTagContentText
+        mov nTagContentLength, eax
+        
+        ;PrintStringByAddr lpTagContentText
+        
+        Invoke RtlZeroMemory, Addr szLinkUrl, SIZEOF szLinkUrl
+        Invoke RtlZeroMemory, Addr szLinkTitle, SIZEOF szLinkTitle
+        
+        ; split into url and title text
+        Invoke _BBCODE_LinkUrlTitle, lpTagContentText, nTagContentLength, Addr szLinkUrl, Addr szLinkTitle
+        .IF eax == TRUE
+
+            Invoke szLen, Addr szLinkTitle
+            mov nLenLinkTitle, eax
+            Invoke GetFontVariant, hdc, hFont, FV_UNDERLINE
+            Invoke SelectObject, hdc, eax
+            Invoke GetTextExtentPoint32, hdc, Addr szLinkTitle, nLenLinkTitle, Addr nSize
+
+;            lea ebx, szLinkTitle
+;            DbgDump ebx, nLenLinkTitle
+;            Invoke szLen, Addr szLinkUrl
+;            lea ebx, szLinkUrl
+;            DbgDump ebx, eax
+            
+            mov ebx, lpRect
+            mov eax, [ebx].RECT.left
+            mov nLeft, eax
+            mov eax, [ebx].RECT.top
+            mov nTop, eax
+            mov eax, [ebx].RECT.bottom
+            mov nHeight, eax            
+            
+            mov eax, nLeft
+            add eax, dwXPos
+            .IF dwXPos != 0
+                Invoke GetTextExtentPoint32, hdc, Addr szSpace, 1, Addr nSizeSpace
+                mov eax, nSizeSpace.x
+                add nSize.x, eax
+                mov eax, nLeft
+                add eax, dwXPos
+                add eax, nSizeSpace.x
+            .ELSE
+                mov eax, nLeft
+                add eax, dwXPos
+            .ENDIF
+            mov rect.left, eax
+            mov eax, nTop
+            add eax, nHeight
+            mov rect.top, eax
+            mov eax, nLeft
+            add eax, dwXPos
+            add eax, nSize.x
+            mov rect.right, eax
+            mov eax, nTop
+            add eax, nHeight
+            add eax, nSize.y ;nLineHeight
+            mov rect.bottom, eax                 
+
+            Invoke IsWindow, hDTELink
+            .IF hDTELink != NULL && eax != FALSE ; Already exists
+                Invoke GetFontVariant, hdc, hFont, FV_NORMAL
+                Invoke SetWindowLong, hDTELink, DTEL_FONTNORMAL, eax ; font normal
+                Invoke GetFontVariant, hdc, hFont, FV_UNDERLINE
+                Invoke SetWindowLong, hDTELink, DTEL_FONTUNDERLINE, eax ; font underline
+                Invoke GetBkColor, hdc
+                Invoke SetWindowLong, hDTELink, DTEL_BACKCOLOR, eax ; back color
+                ;Invoke SetWindowLong, hDTELink, DTEL_TEXTCOLOR, 0C87C0Bh ; text color
+                Invoke DrawTextEXTLinkAddUrl, hDTELink, Addr rect, Addr szLinkUrl, Addr szLinkTitle
+            .ELSE
+            
+                Invoke GetCursorPos, Addr pt
+                Invoke WindowFromDC, hdc
+                mov hWndDC, eax
+                Invoke ScreenToClient, hWndDC, Addr pt
+                Invoke PtInRect, Addr rect, pt.x, pt.y
+                .IF eax == TRUE
+                    Invoke GetFontVariant, hdc, hFont, FV_UNDERLINE
+                    Invoke SelectObject, hdc, eax                
+                .ELSE
+                    Invoke GetFontVariant, hdc, hFont, FV_NORMAL
+                    Invoke SelectObject, hdc, eax                
+                .ENDIF
+                Invoke GetWindowLong, hDTELink, DTEL_BACKCOLOR
+                Invoke SetTextColor, hdc, eax
+                Invoke DrawText, hdc, Addr szLinkTitle, nLenLinkTitle, Addr rect,  DT_WORDBREAK or DT_EXPANDTABS
+            .ENDIF
+
+            Invoke GlobalFree, lpTagContentText
+            
+            mov ebx, lpNewCount
+            mov eax, [ebx]
+            sub eax, 4 ; add spacing for: /url]
+            mov [ebx], eax
+            mov eax, nTagContentLength
+            add eax, 4 ; add spacing for: /url]
+            mov ebx, lpdwTokenLength
+            mov [ebx], eax
+            mov eax, nSize.x
+        .ENDIF
+    .ELSE
+        xor eax, eax
+    .ENDIF
+    ret
+_BBCODE_URL ENDP
+
+
+;------------------------------------------------------------------------------
+; _BBCODE_LinkUrlTitle - Seperate the '=www.site.com]title' string to a url and title
+; ; or handle [url]www.site.com[/url] without a title
+; Returns in eax TRUE if success or FALSE if error
+;------------------------------------------------------------------------------
+_BBCODE_LinkUrlTitle PROC USES EBX ECX EDI ESI lpszHrefString:DWORD, dwHrefStringLength:DWORD, lpszUrl:DWORD, lpszTitle:DWORD
+
+    .IF dwHrefStringLength == 0 || lpszHrefString == NULL
+        mov eax, FALSE
+        ret
+    .ENDIF
+    
+    mov ebx, 0
+    mov esi, lpszHrefString
+    movzx eax, byte ptr [esi]
+    
+    .IF al == '=' ; url is specified
+        mov edi, lpszUrl
+        mov ecx, lpszTitle ; store in title as well, just in case title is empty
+        inc ebx
+        inc esi
+        movzx eax, byte ptr [esi]
+        .WHILE ebx < dwHrefStringLength && al != 0 && al != ']'
+            mov byte ptr [edi], al
+            mov byte ptr [ecx], al
+            inc edi
+            inc ecx
+            inc ebx
+            inc esi
+            movzx eax, byte ptr [esi]
+        .ENDW
+        .IF al == 0
+            ; we hit end of string instead of another ] mark, so fail
+            mov edi, lpszUrl
+            mov byte ptr [edi], 0
+            mov edi, lpszTitle
+            mov byte ptr [edi], 0
+            mov eax, FALSE
+            ret
+        .ELSE
+            mov byte ptr [edi], 0
+            mov byte ptr [ecx], 0                
+        .ENDIF
+        
+        ; continue on to get title
+        inc ebx
+        inc esi
+        movzx eax, byte ptr [esi]
+        .IF al == 0 ; we just have a url, title already set to this, so return true
+            mov eax, TRUE
+            ret
+        .ENDIF
+        
+        ; otherwise get title till end of string
+        mov edi, lpszTitle
+        movzx eax, byte ptr [esi]
+        .WHILE ebx < dwHrefStringLength && al != 0
+            mov byte ptr [edi], al
+            inc edi
+            inc ebx
+            inc esi
+            movzx eax, byte ptr [esi]
+        .ENDW
+        mov byte ptr [edi], 0
+        mov eax, TRUE
+        ret
+
+    .ELSEIF al == ']' ; title is url as well
+        mov edi, lpszUrl
+        mov ecx, lpszTitle
+        inc ebx
+        inc esi
+        .WHILE ebx < dwHrefStringLength && al != 0
+            mov byte ptr [edi], al
+            mov byte ptr [ecx], al
+            inc edi
+            inc ecx
+            inc ebx
+            inc esi
+            movzx eax, byte ptr [esi]            
+        .ENDW
+        mov byte ptr [edi], 0
+        mov byte ptr [ecx], 0           
+        mov eax, TRUE
+        ret
+    .ENDIF
+
+    mov eax, FALSE
+    ret
+_BBCODE_LinkUrlTitle ENDP
 
 
 
@@ -3608,7 +4091,9 @@ GetTagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLeng
     mov ebx, lpszString
     mov eax, [ebx]
     .IF dwType == GETTAG_ALINK
-        add eax, 3
+        add eax, 3 ; skip over <a_ 
+    .ELSEIF dwType == GETTAG_URL
+        add eax, 4 ; skip over [url
     .ELSE
         add eax, dwTokenLength
     .ENDIF
@@ -3674,8 +4159,10 @@ GetTagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLeng
                     inc nLengthTagContentsText
                 .ENDIF
             .ELSEIF dwType == GETTAG_CODE ; </code>
+                ;PrintText 'GETTAG_CODE'
                 Invoke szCmpi, Addr szCodeTag, Addr szTag, 4
                 .IF eax == 0 ; match
+                    ;PrintText 'match'
                     sub nLengthTagContentsText, 6 ; take </code
                     mov bFoundEndTag, TRUE
                     .BREAK
@@ -3718,6 +4205,15 @@ GetTagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLeng
                 .ELSE 
                     inc nLengthTagContentsText
                 .ENDIF  
+            .ELSEIF dwType == GETTAG_URL ; [/url]
+                Invoke szCmpi, Addr szUrlTag, Addr szTag, 3
+                .IF eax == 0 ; match
+                    sub nLengthTagContentsText, 5 ; take [/url
+                    mov bFoundEndTag, TRUE
+                    .BREAK
+                .ELSE 
+                    inc nLengthTagContentsText
+                .ENDIF             
             .ELSE
                 IFDEF DEBUG32
                 PrintText 'Error value not supported yet'
@@ -3744,12 +4240,16 @@ GetTagContents PROC USES EBX EDI ESI lpszString:DWORD, dwSize:DWORD, dwTokenLeng
         ret
     .ENDIF
     mov lpszTagContentsText, eax
-
+    
+    ;PrintDec nLengthTagContentsText
+    
     ; adjust length to skip back over the / and <
     mov ebx, lpszString
     mov eax, [ebx]
     .IF dwType == GETTAG_ALINK
-        add eax, 3
+        add eax, 3 ; skip over /a>
+    .ELSEIF dwType == GETTAG_URL
+        add eax, 4 ; skip over /url]
     .ELSE
         add eax, dwTokenLength
     .ENDIF
@@ -3940,11 +4440,11 @@ ParseColor PROC USES EBX ECX EDX ESI String:DWORD
     mov ebx, String
     mov eax,dword ptr [ebx]
     movsx ecx,byte ptr [eax]
-    cmp ecx,27h
+    cmp ecx,27h ; '
     je LABEL_0x012127CD
     mov edx,dword ptr [ebx]
     movsx eax,byte ptr [edx]
-    cmp eax,22h
+    cmp eax,22h ; "
     jne LABEL_0x012127D6
     
     LABEL_0x012127CD:
@@ -3955,7 +4455,7 @@ ParseColor PROC USES EBX ECX EDX ESI String:DWORD
     LABEL_0x012127D6:
     mov edx,dword ptr [ebx]
     movsx eax,byte ptr [edx]
-    cmp eax,23h
+    cmp eax,23h ; #
     jne LABEL_0x012127EA
     mov ecx,dword ptr [ebx]
     add ecx,1h
@@ -4298,79 +4798,6 @@ szCatStrToWide PROC USES EDI ESI lpszWideDest:DWORD, lpszSource:DWORD
 szCatStrToWide ENDP 
 
 
-;------------------------------------------------------------------------------
-; szLinkUrlTitle - Seperate the [href="url">title] string to a url and title
-;
-; Returns in eax TRUE if success or FALSE if error
-;------------------------------------------------------------------------------
-szLinkUrlTitle PROC USES EBX EDI ESI lpszHrefString:DWORD, dwHrefStringLength:DWORD, lpszUrl:DWORD, lpszTitle:DWORD
-
-    .IF dwHrefStringLength == 0 || lpszHrefString == NULL
-        mov eax, FALSE
-        ret
-    .ENDIF
-    
-    mov esi, lpszHrefString
-    movzx eax, byte ptr [esi]
-    mov ebx, 0
-    .WHILE ebx < dwHrefStringLength && al != 0
-        
-        .IF al == 22h || al == 27h ; " or '
-            mov edi, lpszUrl
-            inc ebx
-            inc esi
-            movzx eax, byte ptr [esi]
-            .WHILE ebx < dwHrefStringLength && al != 0 && al != 22h && al != 27h
-                mov byte ptr [edi], al
-                inc edi
-                inc ebx
-                inc esi
-                movzx eax, byte ptr [esi]
-            .ENDW
-            .IF al == 0
-                ; we hit end of string instead of another quote mark, so fail
-                mov edi, lpszUrl
-                mov byte ptr [edi], 0
-                mov edi, lpszTitle
-                mov byte ptr [edi], 0
-                mov eax, FALSE
-                ret
-            .ELSE
-                mov byte ptr [edi], 0
-            .ENDIF
-
-            ; continue on to get title
-            inc ebx
-            inc esi
-            movzx eax, byte ptr [esi]
-            .IF al == '>'
-                inc ebx
-                inc esi
-                movzx eax, byte ptr [esi]
-            .ENDIF
-
-            mov edi, lpszTitle
-            movzx eax, byte ptr [esi]
-            .WHILE ebx < dwHrefStringLength && al != 0
-                mov byte ptr [edi], al
-                inc edi
-                inc ebx
-                inc esi
-                movzx eax, byte ptr [esi]
-            .ENDW
-            mov byte ptr [edi], 0
-            mov eax, TRUE
-            ret
-        .ENDIF
-        
-        inc ebx
-        inc esi
-        movzx eax, byte ptr [esi]
-    .ENDW
-    
-    mov eax, FALSE
-    ret
-szLinkUrlTitle ENDP
 
 
 ;------------------------------------------------------------------------------
@@ -4458,6 +4885,7 @@ DrawTextEXTLinkProc PROC USES EBX hWin:HWND, uMsg:UINT, wParam:WPARAM, lParam:LP
         .IF eax == TRUE
             Invoke SetWindowLong, hWin, DTEL_MOUSEOVER, FALSE ; Mouseover
             Invoke InvalidateRect, hWin, NULL, TRUE
+            Invoke DrawTextEXTLinkNotify, hWin, DTELN_MOUSECLICK
             Invoke DrawTextEXTLinkClick, hWin
         .ENDIF
 
@@ -4478,6 +4906,7 @@ DrawTextEXTLinkProc PROC USES EBX hWin:HWND, uMsg:UINT, wParam:WPARAM, lParam:LP
                 Invoke SetWindowLong, hWin, DTEL_MOUSEOVER, TRUE ; Mouseover
                 .IF eax != TRUE ; only trigger repaint once
                     Invoke InvalidateRect, hWin, NULL, TRUE
+                    Invoke DrawTextEXTLinkNotify, hWin, DTELN_MOUSEOVER
                     mov TE.cbSize, SIZEOF TRACKMOUSEEVENT
                     mov TE.dwFlags, TME_LEAVE
                     mov eax, hWin
@@ -4493,6 +4922,7 @@ DrawTextEXTLinkProc PROC USES EBX hWin:HWND, uMsg:UINT, wParam:WPARAM, lParam:LP
         .IF eax == TRUE
             Invoke SetWindowLong, hWin, DTEL_MOUSEOVER, FALSE ; Mouseover
             Invoke InvalidateRect, hWin, NULL, TRUE
+            Invoke DrawTextEXTLinkNotify, hWin, DTELN_MOUSELEAVE
         .ENDIF
 
     .ELSEIF eax == WM_KILLFOCUS
@@ -4881,37 +5311,139 @@ DrawTextEXTLinkReady ENDP
 ; Returns in eax TRUE if success or FALSE if error
 ;------------------------------------------------------------------------------
 DrawTextEXTLinkClick PROC USES EBX hWin:DWORD
+;    LOCAL ptrLinkUrlArray:DWORD
+    LOCAL ptrLinkUrlEntry:DWORD
+;    LOCAL nTotalLinkUrls:DWORD
+;    LOCAL nCurrentLinkUrl:DWORD
+    LOCAL hParent:DWORD
+    LOCAL lpszUrl:DWORD
+;    LOCAL rect:RECT
+;    LOCAL pt:POINT
+;
+;    .IF hWin == 0
+;        mov eax, FALSE
+;        ret
+;    .ENDIF
+;
+;    Invoke GetWindowLong, hWin, DTEL_LINKURLSTOTAL ; total link urls
+;    .IF eax == 0
+;        mov eax, FALSE
+;        ret
+;    .ENDIF
+;    mov nTotalLinkUrls, eax
+;    
+;    Invoke GetWindowLong, hWin, DTEL_LINKURLSARRAY ; pointer to link url arrays
+;    .IF eax == 0
+;        mov eax, FALSE
+;        ret
+;    .ENDIF
+;    mov ptrLinkUrlArray, eax
+;    mov ptrLinkUrlEntry, eax
+;
+;    Invoke GetParent, hWin
+;    mov hParent, eax
+;    Invoke GetCursorPos, Addr pt
+;    Invoke ScreenToClient, hWin, Addr pt
+;    
+;    mov nCurrentLinkUrl, 0
+;    mov eax, 0
+;    .WHILE eax < nTotalLinkUrls
+;        mov ebx, ptrLinkUrlEntry
+;        lea eax, [ebx].LINKURL.rcLinkUrl
+;        Invoke CopyRect, Addr rect, eax
+;    
+;        Invoke PtInRect, Addr rect, pt.x, pt.y
+;        .IF eax == TRUE
+;            mov ebx, ptrLinkUrlEntry
+;            lea ebx, [ebx].LINKURL.szLinkUrl
+;            mov lpszUrl, ebx
+;            movzx eax, byte ptr [ebx]
+;            .IF al == '#' ; res id string pass this to parent via WM_COMMAND
+;                inc ebx
+;                movzx eax, byte ptr [ebx]
+;                .IF al != 0
+;                    Invoke atol, ebx
+;                    Invoke PostMessage, hParent, WM_COMMAND, eax, hWin
+;                .ENDIF 
+;            .ELSEIF al == 0 ; null string, do nothing
+;            .ELSE
+;                Invoke ShellExecute, hWin, Addr szDTELinkOpen, lpszUrl, NULL, NULL, SW_SHOW
+;            .ENDIF
+;            mov eax, TRUE
+;            ret
+;        .ENDIF    
+;    
+;        add ptrLinkUrlEntry, SIZEOF LINKURL
+;        inc nCurrentLinkUrl
+;        mov eax, nCurrentLinkUrl
+;    .ENDW
+;
+;    mov eax, FALSE
+;    ret
+
+    Invoke DrawTextEXTLinkItem, hWin
+    .IF eax == NULL
+        mov eax, FALSE
+        ret
+    .ELSE
+        mov ptrLinkUrlEntry, eax
+        mov ebx, eax
+        Invoke GetParent, hWin
+        mov hParent, eax
+        lea ebx, [ebx].LINKURL.szLinkUrl
+        mov lpszUrl, ebx
+        movzx eax, byte ptr [ebx]
+        .IF al == '#' ; res id string pass this to parent via WM_COMMAND
+            inc ebx
+            movzx eax, byte ptr [ebx]
+            .IF al != 0
+                Invoke atol, ebx
+                Invoke PostMessage, hParent, WM_COMMAND, eax, hWin
+            .ENDIF 
+        .ELSEIF al == 0 ; null string, do nothing
+        .ELSE
+            Invoke ShellExecute, hWin, Addr szDTELinkOpen, lpszUrl, NULL, NULL, SW_SHOW
+        .ENDIF
+        mov eax, TRUE
+        ret
+    .ENDIF
+    ret
+DrawTextEXTLinkClick ENDP
+
+
+;------------------------------------------------------------------------------
+; DrawTextEXTLinkItem - Get current link url item
+; 
+; Returns in eax pointer to LINKURL entry or NULL otherwise
+;------------------------------------------------------------------------------
+DrawTextEXTLinkItem PROC USES EBX hWin:DWORD
     LOCAL ptrLinkUrlArray:DWORD
     LOCAL ptrLinkUrlEntry:DWORD
     LOCAL nTotalLinkUrls:DWORD
     LOCAL nCurrentLinkUrl:DWORD
-    LOCAL hParent:DWORD
-    LOCAL lpszUrl:DWORD
     LOCAL rect:RECT
     LOCAL pt:POINT
 
     .IF hWin == 0
-        mov eax, FALSE
+        mov eax, NULL
         ret
     .ENDIF
 
     Invoke GetWindowLong, hWin, DTEL_LINKURLSTOTAL ; total link urls
     .IF eax == 0
-        mov eax, FALSE
+        mov eax, NULL
         ret
     .ENDIF
     mov nTotalLinkUrls, eax
     
     Invoke GetWindowLong, hWin, DTEL_LINKURLSARRAY ; pointer to link url arrays
     .IF eax == 0
-        mov eax, FALSE
+        mov eax, NULL
         ret
     .ENDIF
     mov ptrLinkUrlArray, eax
     mov ptrLinkUrlEntry, eax
 
-    Invoke GetParent, hWin
-    mov hParent, eax
     Invoke GetCursorPos, Addr pt
     Invoke ScreenToClient, hWin, Addr pt
     
@@ -4924,19 +5456,7 @@ DrawTextEXTLinkClick PROC USES EBX hWin:DWORD
     
         Invoke PtInRect, Addr rect, pt.x, pt.y
         .IF eax == TRUE
-            mov ebx, ptrLinkUrlEntry
-            lea ebx, [ebx].LINKURL.szLinkUrl
-            mov lpszUrl, ebx
-            movzx eax, byte ptr [ebx]
-            .IF al == '#' ; res id string pass this to parent via WM_COMMAND
-                inc ebx
-                Invoke atol, ebx
-                Invoke PostMessage, hParent, WM_COMMAND, eax, hWin 
-            .ELSEIF al == 0 ; null string, do nothing
-            .ELSE
-                Invoke ShellExecute, hWin, Addr szDTELinkOpen, lpszUrl, NULL, NULL, SW_SHOW
-            .ENDIF
-            mov eax, TRUE
+            mov eax, ptrLinkUrlEntry
             ret
         .ENDIF    
     
@@ -4945,11 +5465,58 @@ DrawTextEXTLinkClick PROC USES EBX hWin:DWORD
         mov eax, nCurrentLinkUrl
     .ENDW
 
-    mov eax, FALSE
+    mov eax, NULL
     ret
-DrawTextEXTLinkClick ENDP
+DrawTextEXTLinkItem ENDP
 
 
+;------------------------------------------------------------------------------
+; DrawTextEXTLinkNotify - Notify parent about hyperlink
+;------------------------------------------------------------------------------
+DrawTextEXTLinkNotify PROC USES EBX hWin:DWORD, dwNotifyCode:DWORD
+    LOCAL hParent:DWORD
+    LOCAL idControl:DWORD
+    LOCAL ptrLinkUrlEntry:DWORD
 
+    .IF dwNotifyCode != DTELN_MOUSELEAVE ; use previous values if mouseleave
+        Invoke DrawTextEXTLinkItem, hWin
+        .IF eax == NULL
+            mov eax, FALSE
+            ret
+        .ENDIF
+        mov ptrLinkUrlEntry, eax
+    .ENDIF
+
+    Invoke GetParent, hWin
+    mov hParent, eax
+    Invoke GetDlgCtrlID, hWin
+    mov idControl, eax
+
+    mov eax, hWin
+    mov DTELNM.hdr.hwndFrom, eax
+    mov eax, dwNotifyCode
+    mov DTELNM.hdr.code, eax    
+
+    .IF dwNotifyCode != DTELN_MOUSELEAVE ; use previous values if mouseleave
+        mov ebx, ptrLinkUrlEntry
+        lea eax, [ebx].LINKURL.rcLinkUrl
+        lea ebx, DTELNM.item.rcLinkUrl
+        Invoke CopyRect, ebx, eax
+    
+        mov ebx, ptrLinkUrlEntry
+        lea eax, [ebx].LINKURL.szLinkUrl
+        lea ebx, DTELNM.item.szLinkUrl
+        Invoke lstrcpyn, ebx, eax, LINKURL_MAXLENGTH
+        
+        mov ebx, ptrLinkUrlEntry
+        lea eax, [ebx].LINKURL.szLinkTitle
+        lea ebx, DTELNM.item.szLinkTitle
+        Invoke lstrcpyn, ebx, eax, LINKURL_MAXLENGTH
+    .ENDIF
+
+    Invoke PostMessage, hParent, WM_NOTIFY, idControl, Addr DTELNM 
+    mov eax, TRUE
+    ret
+DrawTextEXTLinkNotify ENDP
 
 

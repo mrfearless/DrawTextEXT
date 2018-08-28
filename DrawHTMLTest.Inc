@@ -33,7 +33,9 @@ ICO_MAIN                EQU 100
 
 ; Main Dialog
 IDD_DIALOG				EQU 1000
-IDC_LINK_MSGBOX         EQU 1001
+IDC_STATUSBAR           EQU 1001
+IDC_LINK_MSGBOX         EQU 1010
+
 
 ; Main Menu 
 IDM_MENU				EQU 10000
@@ -52,10 +54,12 @@ AboutMsg				DB 'www.LetTheLight.in',13,10,'Copyright © fearless 2018',0
 
 szLinkMsgBoxMsg         DB 'You clicked on the hyperlink that had an internal resource id',0
 szFontSegioUI           DB "Segio UI",0
-
+szClearStatusBar        DB 0,0
 
 ;szText                  DB "<pre></font> and </b></b></pre>"
 ;                        DB 0,0,0,0
+
+
 
 szText                  DB "<p>Beauty, success, truth ..."
                         DB "<br><em>He is blessed who has two.</em>"
@@ -64,45 +68,60 @@ szText                  DB "<p>Beauty, success, truth ..."
                         DB "<br><a href='www.google.com'>Google</a> test"
                         DB "<pre>This example",9," used the",9,"following tags: <p>,  <br>,   <em>,   <color='#C00000'> and <b></pre>"
                         DB "<pre>And the following end tags: </p>,  </br>,   </em>,   </font> and </b></pre>"
-                        DB "<br>test"
-                        DB "<code><pre>test</pre></code>"
-                        DB "<code>test</code>"
                         DB "<quote>Man is still the most extraordinary computer of all.</quote>"
                         DB "<br> - John F. Kennedy"
                         DB "<hr>"
-                        DB "<br>Click on this <a href='#1001'>link</a> to show a message box"
+                        DB "<!-- Your comment here -->"
+                        DB "Click on this <a href='#1010'>link</a> to show a message box" ; 1010
                         DB "<ul>"
-                        DB "<li><b>List 1 - First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
-                        DB "<li><em>List 1 - Second Item</em></li>"
+                        DB "  <li>List 1 - <b>First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
+                        DB "  <li>List 1 - <b>Second Item</b></li>"
                         DB "</ul>"
                         DB "<ol>"
-                        DB "<li><b>List 2 - First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
-                        DB "<li><em>List 2 - Second Item</em></li>"
+                        DB "  <li>List 2 - <b>First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
+                        DB "  <li>List 2 - <b>Second Item</b></li>"
                         DB "</ol>"
                         DB "<ul>"
-                        DB "<li><b>List 3 - First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
-                        DB "<li><em>List 3 - Second Item</em></li>"
-                        DB "<ul>"
-                        DB "<li><b>List 3 - Lvl 2 - First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
-                        DB "<li><em>List 3 - Lvl 2 - Second Item</em></li>"
-                        DB "</ul>"
-                        DB "<li><u>List 3 - Third Item</u></li>"
+                        DB "  <li>List 3 - <b>First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
+                        DB "  <li>List 3 - <b>Second Item</b></li>"
+                        DB "  <ul>"
+                        DB "    <li>List 3 - Lvl 2 - <b>First Item</b> - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.</li>"
+                        DB "    <li>List 3 - Lvl 2 - <b>Second Item</b></li>"
+                        DB "  </ul>"
+                        DB "<li>List 3 - <b>Third Item</b></li>"
                         DB "</ul>" 
                         DB 0,0,0,0
 
 
 szBBCodeText            DB "Beauty, success, truth ...",13,10
                         DB "[i]He is blessed who has two.[/i]",13,10
-                        DB "[color='#C00000'][b]Your  program has  none.[/b][/color]",13,10
+                        DB "[color=#C00000][b]Your program has none.[/b][/color]",13,10
                         DB "[i]Ken Carpenter[/i]",13,10
-                        DB "[code]This example  used the",9,"following tags: [i], [color='#C00000'] and [b][/code]",13,10
-                        DB "[code]And the following end tags: [/i],   and [/b][/code]",13,10
+                        DB "[url=www.google.com]Google[/url] test",13,10
+                        DB "[code]This example used the following tags: [i],",9,"[color=#C00000] and [b][/code]",13,10
+                        DB "[code]And the following end tags: [/i], and [/b][/code]",13,10
                         DB 13,10
-                        DB "[code]test[/code]",13,10
-                        DB "[code]test[/code]",13,10
-                        DB 13,10,13,10
                         DB "[q]Man is still the most extraordinary computer of all.[/q]",13,10
                         DB " - John F. Kennedy",13,10
+                        DB 13,10
+                        DB "Click on this [url=#1010]link[/url] to show a message box" ; 1010
+                        DB "[ul]"
+                        DB "  [li]List 1 - [b]First Item[/b] - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.[/li]"
+                        DB "  [li]List 1 - [b]Second Item[/b>[/li]"
+                        DB "[/ul]"
+                        DB "[ol]"
+                        DB "  [li]List 2 - [b]First Item[/b] - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.[/li]"
+                        DB "  [li]List 2 - [b]Second Item[/b][/li]"
+                        DB "[/ol]"
+                        DB "[ul]"
+                        DB "  [li]List 3 - [b]First Item[/b] - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.[/li]"
+                        DB "  [li]List 3 - [b]Second Item[/b][/li]"
+                        DB "  [ul]"
+                        DB "    [li]List 3 - Lvl 2 - [b]First Item[/b] - which is a test to see if the text in this item will properly wrap around in the next line to indent after the bullet symbol and match the indent of the first letter of the first line.[/li]"
+                        DB "    [li]List 3 - Lvl 2 - [b]Second Item[/b][/li]"
+                        DB "  [/ul]"
+                        DB "[li]List 3 - [b]Third Item[/b][/li]"
+                        DB "[/ul]"                         
                         DB 0,0,0,0
 
 
@@ -124,6 +143,7 @@ icc 					INITCOMMONCONTROLSEX <>
 hInstance				DD ?
 CommandLine				DD ?
 hWnd					DD ?
+hStatusBar              DD ?
 hFontSegioUI            DD ?
 CodeBackBrush           DD ?
 QuoteBackBrush          DD ?

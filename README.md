@@ -51,7 +51,7 @@ The url title text is shown as 'link' and the id as `#1010`. When the url is  cl
 
 **DrawBBCODE:**
 
-The `DrawBBCODE` function supports the following bbcode tags, enclosed in aquare brackets `[]` for starting tags and `[/]` for ending tags:
+The `DrawBBCODE` function supports the following bbcode tags, enclosed in square brackets `[]` for starting tags and `[/]` for ending tags:
 
 * `[b] [/b]`, `<strong> </strong>` for bolding text 
 * `[i] [/i]` for italic text

@@ -81,7 +81,7 @@ The url title text is shown as 'link' and the id as `#1010`. When the url is cli
 
 A RadASM example project is included to demonstrate the `DrawHTMLCODE` function. It can be found in the [releases](https://github.com/mrfearless/DrawTextEXT/tree/master/releases) folder, or can be downloaded directly from [here](https://github.com/mrfearless/DrawTextEXT/blob/master/releases/DrawHTMLTest.zip?raw=true).
 
-
+![](./assets/DrawHTMLCODETest.png)
 
 ## Additional Resources
 
